@@ -1,62 +1,66 @@
-// 1. Importar paquetes
 const express = require('express');
 const cors = require('cors');
-const db = require('./database.js');
+const db = require('./database.js'); // Ahora es el cliente de PostgreSQL
 const bcrypt = require('bcryptjs');
 
-// 2. Crear la aplicación de Express
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// 3. Middlewares (muy importantes para la conexión)
-app.use(cors());          // Permite que tu front-end se comunique con este servidor
-app.use(express.json());  // Permite al servidor entender los datos JSON de los formularios
+app.use(cors());
+app.use(express.json());
 
-// 4. Ruta de bienvenida para verificar que el servidor está vivo
-app.get('/', (req, res) => {
-  res.send('¡Servidor de GreenHaul funcionando y listo para recibir peticiones!');
+app.post('/api/register', async (req, res) => {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Campos obligatorios.' });
+    }
+    
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        // La sintaxis de SQL cambia de '?' a '$1, $2, etc.' para PostgreSQL
+        const sql = 'INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id';
+        const values = [name, email, hashedPassword];
+        
+        const result = await db.query(sql, values);
+        res.status(201).json({ message: 'Usuario registrado con éxito.', userId: result.rows[0].id });
+
+    } catch (err) {
+        console.error("Error en /api/register:", err.message);
+        res.status(400).json({ message: 'El correo electrónico ya está registrado.' });
+    }
 });
 
-// 5. RUTAS DE API PARA USUARIOS
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Correo y contraseña son obligatorios.' });
+    }
 
-/**
- * @route   POST /api/register
- * @desc    Registra un nuevo usuario
- */
-app.post('/api/register', (req, res) => {
     try {
-        const { name, email, password, whatsapp } = req.body;
-        if (!name || !email || !password) {
-          return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
-        }
-    
-        bcrypt.hash(password, 10, (err, hashedPassword) => {
-            if (err) {
-                console.error("Error de Bcrypt:", err);
-                return res.status(500).json({ message: 'Error al encriptar la contraseña.' });
-            }
-            
-            const sql = 'INSERT INTO users (name, email, password, whatsapp) VALUES (?, ?, ?, ?)';
-            db.run(sql, [name, email, hashedPassword, whatsapp], function(err) {
-                if (err) {
-                    console.error("Error de Base de Datos:", err);
-                    return res.status(400).json({ message: 'El correo electrónico ya está registrado.' });
-                }
-                res.status(201).json({ 
-                    message: 'Usuario registrado con éxito',
-                    userId: this.lastID 
-                });
-            });
-        });
+        const sql = 'SELECT * FROM users WHERE email = $1';
+        const result = await db.query(sql, [email]);
+        const user = result.rows[0];
 
-    } catch (error) {
-        console.error("Error inesperado en /api/register:", error);
+        if (!user) {
+            return res.status(400).json({ message: 'Credenciales inválidas.' });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Credenciales inválidas.' });
+        }
+
+        res.json({
+            message: 'Inicio de sesión exitoso',
+            user: { id: user.id, name: user.name, email: user.email }
+        });
+    } catch (err) {
+        console.error("Error en /api/login:", err.message);
         res.status(500).json({ message: 'Error interno del servidor.' });
     }
 });
 
 
-// 6. Poner el servidor a escuchar
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
