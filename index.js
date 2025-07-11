@@ -31,8 +31,6 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Aquí iría tu ruta /api/login
-
 async function startServer() {
   await connectAndSetupDatabase();
   
