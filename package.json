@@ -1,14 +1,15 @@
 {
-  "name": "node-starter",
+  "name": "greenhaul-backend",
+  "version": "1.0.0",
   "private": true,
+  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "index": "^0.4.0",
     "pg": "^8.16.3"
   }
 }
