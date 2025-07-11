@@ -9,6 +9,13 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// ===============================================
+// ===== RUTA DE BIENVENIDA AÑADIDA AQUÍ =====
+// ===============================================
+app.get('/', (req, res) => {
+  res.send('¡Servidor de GreenHaul funcionando y listo para recibir peticiones!');
+});
+
 app.post('/api/register', async (req, res) => {
   const { name, email, password, whatsapp } = req.body;
   if (!name || !email || !password) {
