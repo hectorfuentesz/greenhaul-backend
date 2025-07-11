@@ -1,30 +1,38 @@
-const sqlite3 = require('sqlite3').verbose();
+const { Client } = require('pg');
 
-// Se conecta a un archivo de base de datos local. Si no existe, lo crea.
-const db = new sqlite3.Database('./greenhaul.db', (err) => {
-  if (err) {
-    console.error("Error al abrir la base de datos:", err.message);
-  } else {
-    console.log("Conectado a la base de datos SQLite.");
-    
-    // Crea la tabla de usuarios si no existe, incluyendo el campo para WhatsApp
-    const sql = `
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password TEXT NOT NULL,
-        whatsapp TEXT
-      )`;
-
-    db.run(sql, (err) => {
-      if (err) {
-        console.error("Error al crear la tabla 'users':", err.message);
-      } else {
-        console.log("Tabla 'users' lista y preparada.");
-      }
-    });
+// Se conecta usando la URL que Railway te da automáticamente
+const client = new Client({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
   }
 });
 
-module.exports = db;
+// Define la estructura de la tabla de usuarios para PostgreSQL
+const createTableQuery = `
+  CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(100) NOT NULL,
+    whatsapp VARCHAR(20)
+  );
+`;
+
+// Función para conectar y preparar la base de datos
+async function setupDatabase() {
+  try {
+    await client.connect();
+    console.log('✅ Conectado a la base de datos PostgreSQL en Railway.');
+    await client.query(createTableQuery);
+    console.log("👍 Tabla 'users' verificada y lista.");
+  } catch (err) {
+    console.error("❌ ERROR al conectar o configurar la base de datos:", err.stack);
+    process.exit(1); // Detiene la aplicación si la base de datos falla
+  }
+}
+
+module.exports = {
+  db: client,
+  setupDatabase
+};
