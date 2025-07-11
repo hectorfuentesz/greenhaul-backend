@@ -1,6 +1,5 @@
 const { Client } = require('pg');
 
-// Se conecta usando la URL que Railway te da automáticamente
 const client = new Client({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -8,7 +7,6 @@ const client = new Client({
   }
 });
 
-// Define la estructura de la tabla de usuarios para PostgreSQL
 const createTableQuery = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -19,20 +17,19 @@ const createTableQuery = `
   );
 `;
 
-// Función para conectar y preparar la base de datos
-async function setupDatabase() {
+async function connectAndSetupDatabase() {
   try {
     await client.connect();
-    console.log('✅ Conectado a la base de datos PostgreSQL en Railway.');
+    console.log('Conectado exitosamente a la base de datos PostgreSQL en Railway.');
     await client.query(createTableQuery);
-    console.log("👍 Tabla 'users' verificada y lista.");
+    console.log("Tabla 'users' lista y preparada.");
   } catch (err) {
-    console.error("❌ ERROR al conectar o configurar la base de datos:", err.stack);
-    process.exit(1); // Detiene la aplicación si la base de datos falla
+    console.error("Error al conectar o configurar la base de datos:", err.stack);
+    process.exit(1);
   }
 }
 
 module.exports = {
   db: client,
-  setupDatabase
+  connectAndSetupDatabase
 };
