@@ -22,7 +22,7 @@ async function connectAndSetupDatabase() {
     await client.connect();
     console.log('Conectado exitosamente a la base de datos PostgreSQL en Railway.');
     await client.query(createTableQuery);
-    console.log("Tabla 'users' lista.");
+    console.log("Tabla 'users' lista y preparada.");
   } catch (err) {
     console.error("Error al conectar o configurar la base de datos:", err.stack);
     process.exit(1);
