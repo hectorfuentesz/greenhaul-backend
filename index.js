@@ -6,20 +6,19 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middlewares para permitir la comunicación y entender JSON
 app.use(cors());
 app.use(express.json());
 
-// Ruta de prueba para confirmar que el backend funciona
+// ✅ Ruta de prueba para confirmar que el backend funciona
 app.get('/', (req, res) => {
   res.send('✅ Backend GreenHaul funcionando correctamente 🚛');
 });
 
-// Ruta para registrar un nuevo usuario
+// 👉 Registro de usuario
 app.post('/api/register', async (req, res) => {
   const { name, email, password, whatsapp } = req.body;
   if (!name || !email || !password) {
-    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+    return res.status(400).json({ message: 'Campos obligatorios.' });
   }
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -32,47 +31,8 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ==========================================================
-// ===== RUTA DE LOGIN (AÑADIDA Y FUNCIONAL) =====
-// ==========================================================
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Correo y contraseña son obligatorios.' });
-  }
+// 👉 Aquí puedes agregar también el endpoint de login cuando lo tengas
 
-  try {
-    const sql = 'SELECT * FROM users WHERE email = $1';
-    const result = await db.query(sql, [email]);
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'Credenciales inválidas.' }); // Correo no encontrado
-    }
-
-    const user = result.rows[0];
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Credenciales inválidas.' }); // Contraseña incorrecta
-    }
-
-    res.status(200).json({
-      message: 'Inicio de sesión exitoso.',
-      user: { 
-        id: user.id, 
-        name: user.name, 
-        email: user.email, 
-        whatsapp: user.whatsapp 
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Error en el servidor.' });
-  }
-});
-
-
-// Función que asegura que la base de datos esté lista antes de iniciar el servidor
 async function startServer() {
   await connectAndSetupDatabase();
   app.listen(PORT, () => {
@@ -80,5 +40,4 @@ async function startServer() {
   });
 }
 
-// Inicia la aplicación
 startServer();
