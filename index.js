@@ -1,12 +1,11 @@
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
 const { db, connectAndSetupDatabase } = require('./database.js');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middlewares para permitir la comunicación y entender JSON
 app.use(cors());
 app.use(express.json());
 
@@ -32,36 +31,21 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ==========================================================
-// ===== RUTA DE LOGIN (CORREGIDA Y MÁS ROBUSTA) =====
-// ==========================================================
+// Ruta para iniciar sesión
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Correo y contraseña son obligatorios.' });
-  }
-
   try {
-    const sql = 'SELECT * FROM users WHERE email = $1';
-    const result = await db.query(sql, [email]);
-
-    // Si no se encuentra ningún usuario con ese email
+    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
     if (result.rows.length === 0) {
-      // Enviamos un error 401 (No autorizado) para que el front-end lo sepa
-      return res.status(401).json({ message: 'Credenciales inválidas.' }); 
+      return res.status(401).json({ message: 'Correo no registrado.' });
     }
-
     const user = result.rows[0];
-    
-    // Comparamos la contraseña enviada con la encriptada en la base de datos
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      // Si la contraseña no coincide, enviamos el mismo error genérico
-      return res.status(401).json({ message: 'Credenciales inválidas.' });
+      return res.status(401).json({ message: 'Contraseña incorrecta.' });
     }
 
-    // Si todo es correcto, enviamos los datos del usuario para que el front-end los guarde
     res.status(200).json({
       message: 'Inicio de sesión exitoso.',
       user: { 
@@ -72,11 +56,10 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Error en el servidor durante el login:", err);
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    console.error(err);
+    res.status(500).json({ message: 'Error en el servidor.' });
   }
 });
-
 
 // Función que asegura que la base de datos esté lista antes de iniciar el servidor
 async function startServer() {
