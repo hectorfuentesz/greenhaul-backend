@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
+const { db, connectAndSetupDatabase } = require('./database.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +33,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ==========================================================
-// ===== RUTA DE LOGIN (AÑADIDA Y FUNCIONAL) =====
+// ===== RUTA DE LOGIN (CORREGIDA Y MÁS ROBUSTA) =====
 // ==========================================================
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
@@ -45,17 +45,23 @@ app.post('/api/login', async (req, res) => {
     const sql = 'SELECT * FROM users WHERE email = $1';
     const result = await db.query(sql, [email]);
 
+    // Si no se encuentra ningún usuario con ese email
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'Credenciales inválidas.' }); // Correo no encontrado
+      // Enviamos un error 401 (No autorizado) para que el front-end lo sepa
+      return res.status(401).json({ message: 'Credenciales inválidas.' }); 
     }
 
     const user = result.rows[0];
+    
+    // Comparamos la contraseña enviada con la encriptada en la base de datos
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Credenciales inválidas.' }); // Contraseña incorrecta
+      // Si la contraseña no coincide, enviamos el mismo error genérico
+      return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
+    // Si todo es correcto, enviamos los datos del usuario para que el front-end los guarde
     res.status(200).json({
       message: 'Inicio de sesión exitoso.',
       user: { 
@@ -66,8 +72,8 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Error en el servidor.' });
+    console.error("Error en el servidor durante el login:", err);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
 });
 
