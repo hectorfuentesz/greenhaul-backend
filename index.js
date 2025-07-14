@@ -57,54 +57,132 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ==========================================================
-// ===== RUTA PARA ACTUALIZAR PERFIL (AÑADIDA Y FUNCIONAL) =====
-// ==========================================================
+// Ruta para actualizar perfil (email y whatsapp)
 app.put('/api/users/:id', async (req, res) => {
-    try {
-        const { email, whatsapp } = req.body;
-        const { id } = req.params;
+  try {
+    const { email, whatsapp } = req.body;
+    const { id } = req.params;
 
-        if (!email && !whatsapp) {
-            return res.status(400).json({ message: 'No hay datos para actualizar.' });
-        }
-
-        // Construir la consulta SQL dinámicamente para actualizar solo los campos enviados
-        let updates = [];
-        const values = [];
-        let queryIndex = 1;
-
-        if (email) {
-            updates.push(`email = $${queryIndex++}`);
-            values.push(email);
-        }
-        if (whatsapp) {
-            updates.push(`whatsapp = $${queryIndex++}`);
-            values.push(whatsapp);
-        }
-
-        const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = $${queryIndex} RETURNING *`;
-        values.push(id);
-
-        const result = await db.query(sql, values);
-
-        if (result.rowCount === 0) {
-            return res.status(404).json({ message: 'Usuario no encontrado.' });
-        }
-        
-        res.status(200).json({ 
-            message: 'Perfil actualizado con éxito.',
-            user: result.rows[0]
-        });
-
-    } catch (err) {
-        // Manejo de error si el nuevo email ya está en uso
-        if (err.code === '23505') { // Código de error de PostgreSQL para violación de unicidad
-            return res.status(400).json({ message: 'El correo electrónico ya está en uso por otra cuenta.' });
-        }
-        console.error("Error en /api/users/:id :", err);
-        res.status(500).json({ message: 'Error interno del servidor.' });
+    if (!email && !whatsapp) {
+      return res.status(400).json({ message: 'No hay datos para actualizar.' });
     }
+
+    let updates = [];
+    const values = [];
+    let queryIndex = 1;
+
+    if (email) {
+      updates.push(`email = $${queryIndex++}`);
+      values.push(email);
+    }
+    if (whatsapp) {
+      updates.push(`whatsapp = $${queryIndex++}`);
+      values.push(whatsapp);
+    }
+
+    const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = $${queryIndex} RETURNING *`;
+    values.push(id);
+
+    const result = await db.query(sql, values);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    res.status(200).json({
+      message: 'Perfil actualizado con éxito.',
+      user: result.rows[0]
+    });
+
+  } catch (err) {
+    if (err.code === '23505') { // Violación de unicidad para email
+      return res.status(400).json({ message: 'El correo electrónico ya está en uso por otra cuenta.' });
+    }
+    console.error("Error en /api/users/:id :", err);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+});
+
+// ========================
+// RUTAS PARA DIRECCIONES
+// ========================
+
+// Obtener todas las direcciones de un usuario
+app.get('/api/users/:userId/addresses', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const result = await db.query('SELECT * FROM addresses WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al obtener direcciones.' });
+  }
+});
+
+// Agregar una dirección nueva para un usuario
+app.post('/api/users/:userId/addresses', async (req, res) => {
+  const { userId } = req.params;
+  const { street, city, state, postal_code, country } = req.body;
+
+  if (!street || !city) {
+    return res.status(400).json({ message: 'Calle y ciudad son obligatorios.' });
+  }
+
+  try {
+    const sql = `
+      INSERT INTO addresses (user_id, street, city, state, postal_code, country)
+      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
+    `;
+    const values = [userId, street, city, state || null, postal_code || null, country || 'México'];
+    const result = await db.query(sql, values);
+    res.status(201).json({ message: 'Dirección agregada.', address: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al agregar dirección.' });
+  }
+});
+
+// Actualizar una dirección existente
+app.put('/api/addresses/:id', async (req, res) => {
+  const { id } = req.params;
+  const { street, city, state, postal_code, country } = req.body;
+
+  if (!street || !city) {
+    return res.status(400).json({ message: 'Calle y ciudad son obligatorios.' });
+  }
+
+  try {
+    const sql = `
+      UPDATE addresses SET street = $1, city = $2, state = $3, postal_code = $4, country = $5
+      WHERE id = $6 RETURNING *;
+    `;
+    const values = [street, city, state || null, postal_code || null, country || 'México', id];
+    const result = await db.query(sql, values);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+
+    res.status(200).json({ message: 'Dirección actualizada.', address: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al actualizar dirección.' });
+  }
+});
+
+// Eliminar una dirección
+app.delete('/api/addresses/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query('DELETE FROM addresses WHERE id = $1', [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+    res.status(200).json({ message: 'Dirección eliminada.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al eliminar dirección.' });
+  }
 });
 
 
