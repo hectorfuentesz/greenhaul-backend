@@ -185,6 +185,56 @@ app.delete('/api/addresses/:id', async (req, res) => {
   }
 });
 
+// --- INICIO: RUTA PARA CREAR ÓRDENES ---
+app.post('/api/orders', async (req, res) => {
+  const { userId, cartItems, totalAmount } = req.body;
+
+  if (!cartItems || cartItems.length === 0 || !totalAmount) {
+    return res.status(400).json({ message: 'Faltan datos para crear la orden.' });
+  }
+  
+  // Usamos el cliente 'db' directamente para la transacción
+  try {
+    // 1. Iniciamos una transacción
+    await db.query('BEGIN');
+
+    // 2. Insertar en la tabla 'orders' y obtener el ID generado
+    const orderQuery = `
+      INSERT INTO orders (user_id, total_amount) 
+      VALUES ($1, $2) 
+      RETURNING id;
+    `;
+    const orderResult = await db.query(orderQuery, [userId, totalAmount]);
+    const newOrderId = orderResult.rows[0].id;
+
+    // 3. Insertar cada producto del carrito en la tabla 'order_items'
+    for (const item of cartItems) {
+      const itemQuery = `
+        INSERT INTO order_items (order_id, product_name, quantity, price) 
+        VALUES ($1, $2, $3, $4);
+      `;
+      // Usamos || 1 para asegurar que la cantidad tenga un valor por defecto
+      await db.query(itemQuery, [newOrderId, item.name, item.quantity || 1, item.price]);
+    }
+
+    // 4. Si todo ha ido bien, confirmamos los cambios en la base de datos
+    await db.query('COMMIT');
+
+    // 5. Enviamos una respuesta de éxito al frontend con el nuevo ID de la orden
+    res.status(201).json({ 
+      message: '¡Pedido realizado con éxito!',
+      orderId: newOrderId 
+    });
+
+  } catch (err) {
+    // 6. Si algo falla en cualquier punto, revertimos todos los cambios de la transacción
+    await db.query('ROLLBACK');
+    console.error('Error en la transacción de la orden:', err);
+    res.status(500).json({ message: 'Error interno al procesar el pedido.' });
+  }
+});
+// --- FIN: RUTA PARA CREAR ÓRDENES ---
+
 
 // Función que asegura que la base de datos esté lista antes de iniciar el servidor
 async function startServer() {
