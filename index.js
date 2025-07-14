@@ -122,18 +122,22 @@ app.get('/api/users/:userId/addresses', async (req, res) => {
 // Agregar una dirección nueva para un usuario
 app.post('/api/users/:userId/addresses', async (req, res) => {
   const { userId } = req.params;
-  const { street, city, state, postal_code, country } = req.body;
+  // INICIO: Cambio - Extraer 'name' del body
+  const { name, street, city, state, postal_code, country } = req.body;
 
-  if (!street || !city) {
-    return res.status(400).json({ message: 'Calle y ciudad son obligatorios.' });
+  if (!name || !street || !city) { // 'name' ahora es obligatorio
+    return res.status(400).json({ message: 'Nombre, calle y ciudad son obligatorios.' });
   }
+  // FIN: Cambio
 
   try {
+    // INICIO: Cambio - SQL y valores actualizados
     const sql = `
-      INSERT INTO addresses (user_id, street, city, state, postal_code, country)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
+      INSERT INTO addresses (user_id, name, street, city, state, postal_code, country)
+      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;
     `;
-    const values = [userId, street, city, state || null, postal_code || null, country || 'México'];
+    const values = [userId, name, street, city, state || null, postal_code || null, country || 'México'];
+    // FIN: Cambio
     const result = await db.query(sql, values);
     res.status(201).json({ message: 'Dirección agregada.', address: result.rows[0] });
   } catch (err) {
@@ -145,18 +149,22 @@ app.post('/api/users/:userId/addresses', async (req, res) => {
 // Actualizar una dirección existente
 app.put('/api/addresses/:id', async (req, res) => {
   const { id } = req.params;
-  const { street, city, state, postal_code, country } = req.body;
+  // INICIO: Cambio - Extraer 'name' del body
+  const { name, street, city, state, postal_code, country } = req.body;
 
-  if (!street || !city) {
-    return res.status(400).json({ message: 'Calle y ciudad son obligatorios.' });
+  if (!name || !street || !city) { // 'name' ahora es obligatorio
+    return res.status(400).json({ message: 'Nombre, calle y ciudad son obligatorios.' });
   }
+  // FIN: Cambio
 
   try {
+    // INICIO: Cambio - SQL y valores actualizados
     const sql = `
-      UPDATE addresses SET street = $1, city = $2, state = $3, postal_code = $4, country = $5
-      WHERE id = $6 RETURNING *;
+      UPDATE addresses SET name = $1, street = $2, city = $3, state = $4, postal_code = $5, country = $6
+      WHERE id = $7 RETURNING *;
     `;
-    const values = [street, city, state || null, postal_code || null, country || 'México', id];
+    const values = [name, street, city, state || null, postal_code || null, country || 'México', id];
+    // FIN: Cambio
     const result = await db.query(sql, values);
 
     if (result.rowCount === 0) {
