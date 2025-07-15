@@ -1,4 +1,4 @@
-// Archivo: database.js (Con script de modificación temporal)
+// Archivo: database.js (Versión Final y Limpia)
 
 const { Client } = require('pg');
 
@@ -9,7 +9,7 @@ const client = new Client({
   }
 });
 
-// --- Definiciones de tablas (sin cambios) ---
+// --- Definiciones de tablas ---
 const createTableQueryUsers = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -54,26 +54,8 @@ async function connectAndSetupDatabase() {
   try {
     await client.connect();
     console.log('Conectado exitosamente a la base de datos PostgreSQL en Railway.');
-
-    // ========================================================================
-    // --- INICIO: SCRIPT ÚNICO PARA AÑADIR LA COLUMNA 'surname' ---
-    // Este bloque intentará añadir la columna. Si ya existe, no hará nada.
-    try {
-      await client.query('ALTER TABLE users ADD COLUMN surname VARCHAR(100)');
-      console.log("✅ ¡ÉXITO! Columna 'surname' añadida a la tabla 'users'.");
-    } catch (err) {
-      // El código '42701' significa que la columna ya existe. Lo ignoramos.
-      if (err.code === '42701') {
-        console.log("ℹ️ INFO: La columna 'surname' ya existía. No se realizó ninguna acción.");
-      } else {
-        // Si es otro error, sí lo mostramos para depurar.
-        console.error("Error al intentar añadir la columna 'surname':", err.message);
-      }
-    }
-    // --- FIN: SCRIPT ÚNICO ---
-    // ========================================================================
     
-    // El resto del código de setup continúa normalmente
+    // El setup de tablas se ejecuta normalmente
     await client.query(createTableQueryUsers);
     console.log("Tabla 'users' lista.");
     await client.query(createTableQueryAddresses);
