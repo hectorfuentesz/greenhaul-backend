@@ -58,7 +58,7 @@ app.post('/api/login', async (req, res) => {
       user: { 
         id: user.id, 
         name: user.name, 
-        surname: user.surname, // <<< CAMBIO IMPORTANTE
+        surname: user.surname,
         email: user.email, 
         whatsapp: user.whatsapp 
       }
@@ -66,6 +66,24 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error en el servidor.' });
+  }
+});
+
+// --- 2.5. NUEVA RUTA: OBTENER USUARIO POR ID ---
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      'SELECT id, name, surname, email, whatsapp FROM users WHERE id = $1',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+    res.status(200).json({ user: result.rows[0] });
+  } catch (err) {
+    console.error("Error en GET /api/users/:id :", err);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
 });
 
@@ -120,7 +138,6 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-
 // ========================
 // RUTAS PARA DIRECCIONES (Sin cambios)
 // ========================
@@ -129,12 +146,10 @@ app.post('/api/users/:userId/addresses', async (req, res) => { /* ... tu código
 app.put('/api/addresses/:id', async (req, res) => { /* ... tu código ... */ });
 app.delete('/api/addresses/:id', async (req, res) => { /* ... tu código ... */ });
 
-
 // ========================
 // RUTA PARA CREAR ÓRDENES (Sin cambios)
 // ========================
 app.post('/api/orders', async (req, res) => { /* ... tu código ... */ });
-
 
 // --- Función para iniciar el servidor ---
 async function startServer() {
