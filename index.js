@@ -17,19 +17,15 @@ app.get('/', (req, res) => {
 
 // --- 1. RUTA DE REGISTRO CORREGIDA ---
 app.post('/api/register', async (req, res) => {
-  // Ahora esperamos 'name' y 'surname' por separado
   const { name, surname, email, password, whatsapp } = req.body;
-  
   if (!name || !surname || !email || !password) {
     return res.status(400).json({ message: 'Nombre, apellido, correo y contraseña son obligatorios.' });
   }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    // La consulta SQL ahora incluye la columna 'surname'
     const sql = 'INSERT INTO users (name, surname, email, password, whatsapp) VALUES ($1, $2, $3, $4, $5) RETURNING id';
     const values = [name, surname, email, hashedPassword, whatsapp];
-    
     const result = await db.query(sql, values);
     res.status(201).json({ message: 'Usuario registrado.', userId: result.rows[0].id });
   } catch (err) {
@@ -52,7 +48,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'Contraseña incorrecta.' });
     }
 
-    // El objeto de usuario ahora incluye el APELLIDO
     res.status(200).json({
       message: 'Inicio de sesión exitoso.',
       user: { 
@@ -87,10 +82,9 @@ app.get('/api/users/:id', async (req, res) => {
   }
 });
 
-// --- 3. RUTA DE ACTUALIZACIÓN DE PERFIL (YA ROBUSTA) ---
+// --- 3. RUTA DE ACTUALIZACIÓN DE PERFIL ---
 app.put('/api/users/:id', async (req, res) => {
   try {
-    // Acepta cualquiera de estos campos para actualizar
     const { name, surname, email, whatsapp } = req.body;
     const { id } = req.params;
 
@@ -116,16 +110,16 @@ app.put('/api/users/:id', async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
     
-    // Devuelve el usuario completo y actualizado
+    // Devuelve el usuario actualizado
     const updatedUser = result.rows[0];
     res.status(200).json({
       message: 'Perfil actualizado con éxito.',
       user: {
-          id: updatedUser.id,
-          name: updatedUser.name,
-          surname: updatedUser.surname,
-          email: updatedUser.email,
-          whatsapp: updatedUser.whatsapp
+        id: updatedUser.id,
+        name: updatedUser.name,
+        surname: updatedUser.surname,
+        email: updatedUser.email,
+        whatsapp: updatedUser.whatsapp
       }
     });
 
@@ -138,18 +132,110 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-// ========================
-// RUTAS PARA DIRECCIONES (Sin cambios)
-// ========================
-app.get('/api/users/:userId/addresses', async (req, res) => { /* ... tu código ... */ });
-app.post('/api/users/:userId/addresses', async (req, res) => { /* ... tu código ... */ });
-app.put('/api/addresses/:id', async (req, res) => { /* ... tu código ... */ });
-app.delete('/api/addresses/:id', async (req, res) => { /* ... tu código ... */ });
+// =============== DIRECCIONES ===============
 
-// ========================
-// RUTA PARA CREAR ÓRDENES (Sin cambios)
-// ========================
-app.post('/api/orders', async (req, res) => { /* ... tu código ... */ });
+// Obtener todas las direcciones de un usuario
+app.get('/api/users/:userId/addresses', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const result = await db.query(
+      'SELECT * FROM addresses WHERE user_id = $1 ORDER BY id DESC',
+      [userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error("Error GET /api/users/:userId/addresses:", err);
+    res.status(500).json({ message: 'Error al obtener direcciones.' });
+  }
+});
+
+// Obtener una dirección específica por ID
+app.get('/api/addresses/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      'SELECT * FROM addresses WHERE id = $1',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    console.error("Error GET /api/addresses/:id:", err);
+    res.status(500).json({ message: 'Error al obtener dirección.' });
+  }
+});
+
+// Crear una nueva dirección para un usuario
+app.post('/api/users/:userId/addresses', async (req, res) => {
+  const { userId } = req.params;
+  const { street, city, state, postal_code } = req.body;
+  try {
+    const result = await db.query(
+      'INSERT INTO addresses (user_id, street, city, state, postal_code) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [userId, street, city, state, postal_code]
+    );
+    res.status(201).json({ message: 'Dirección guardada correctamente.', address: result.rows[0] });
+  } catch (err) {
+    console.error("Error POST /api/users/:userId/addresses:", err);
+    res.status(500).json({ message: 'Error al guardar dirección.' });
+  }
+});
+
+// Actualizar una dirección existente
+app.put('/api/addresses/:id', async (req, res) => {
+  const { id } = req.params;
+  const { street, city, state, postal_code } = req.body;
+  try {
+    const result = await db.query(
+      'UPDATE addresses SET street = $1, city = $2, state = $3, postal_code = $4 WHERE id = $5 RETURNING *',
+      [street, city, state, postal_code, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+    res.status(200).json({ message: 'Dirección actualizada correctamente.', address: result.rows[0] });
+  } catch (err) {
+    console.error("Error PUT /api/addresses/:id:", err);
+    res.status(500).json({ message: 'Error al actualizar dirección.' });
+  }
+});
+
+// Eliminar una dirección
+app.delete('/api/addresses/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      'DELETE FROM addresses WHERE id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+    res.status(200).json({ message: 'Dirección eliminada con éxito.' });
+  } catch (err) {
+    console.error("Error DELETE /api/addresses/:id:", err);
+    res.status(500).json({ message: 'Error al eliminar dirección.' });
+  }
+});
+
+// =============== ÓRDENES ===============
+
+// Crear una orden (puedes expandir esto si tienes lógica adicional)
+app.post('/api/orders', async (req, res) => {
+  const { user_id, total_amount } = req.body;
+  try {
+    const result = await db.query(
+      'INSERT INTO orders (user_id, total_amount) VALUES ($1, $2) RETURNING *',
+      [user_id, total_amount]
+    );
+    res.status(201).json({ message: 'Orden creada correctamente.', order: result.rows[0] });
+  } catch (err) {
+    console.error("Error POST /api/orders:", err);
+    res.status(500).json({ message: 'Error al crear la orden.' });
+  }
+});
 
 // --- Función para iniciar el servidor ---
 async function startServer() {
