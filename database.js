@@ -1,4 +1,4 @@
-// Archivo: database.js (Versión Completa y Modificada)
+// Archivo: database.js (Versión Final y Completa)
 
 const { Client } = require('pg');
 
@@ -33,27 +33,28 @@ const createTableQueryUsers = `
 `;
 
 // Tabla 'addresses': Almacena las direcciones asociadas a los usuarios.
-// Incluye los nuevos campos 'name', 'neighborhood', 'references', 'latitude', 'longitude'.
+// Incluye los nuevos campos 'name', 'neighborhood', '"references"', 'latitude', 'longitude'.
+// "references" está entre comillas dobles porque es una palabra clave reservada en SQL.
 const createTableQueryAddresses = `
   CREATE TABLE IF NOT EXISTS addresses (
     id SERIAL PRIMARY KEY,        -- Identificador único auto-incremental
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- ID del usuario, borra direcciones si el usuario es eliminado
     name VARCHAR(255),            -- Nombre descriptivo de la dirección (ej. "Casa", "Oficina")
     street VARCHAR(255) NOT NULL, -- Calle y número
-    neighborhood VARCHAR(255),    -- Colonia/Barrio (Nuevo campo)
+    neighborhood VARCHAR(255),    -- Colonia/Barrio
     city VARCHAR(100) NOT NULL,   -- Ciudad
     state VARCHAR(100),           -- Estado
     postal_code VARCHAR(20),      -- Código Postal
-    references TEXT,              -- Referencias adicionales (texto más largo, Nuevo campo)
-    latitude NUMERIC(10, 7),      -- Latitud de la dirección (Nuevo campo, precisión 7 decimales)
-    longitude NUMERIC(10, 7),     -- Longitud de la dirección (Nuevo campo, precisión 7 decimales)
+    "references" TEXT,            -- ¡CORRECCIÓN CLAVE! Ahora entre comillas dobles. Referencias adicionales (texto más largo)
+    latitude NUMERIC(10, 7),      -- Latitud de la dirección (precisión 7 decimales para Leaflet)
+    longitude NUMERIC(10, 7),     -- Longitud de la dirección (precisión 7 decimales para Leaflet)
     country VARCHAR(100) DEFAULT 'México', -- País (valor por defecto)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Marca de tiempo de creación
   );
 `;
 
 // Tabla 'orders': Almacena información general sobre los pedidos/mudanzas.
-// Se añadió la columna 'status'.
+// Se añadió la columna 'status' con un valor por defecto.
 const createTableQueryOrders = `
   CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,        -- Identificador único auto-incremental
@@ -85,15 +86,15 @@ async function connectAndSetupDatabase() {
     console.log('✅ Conectado exitosamente a la base de datos PostgreSQL en Railway.');
     
     // Ejecutar la creación de tablas.
-    // Nota importante: `CREATE TABLE IF NOT EXISTS` solo crea la tabla si no existe.
-    // Si necesitas agregar columnas a tablas existentes sin borrar datos,
+    // NOTA IMPORTANTE: `CREATE TABLE IF NOT EXISTS` solo crea la tabla si no existe.
+    // Si necesitas agregar columnas a tablas EXISTENTES sin borrar datos (lo más común),
     // DEBES ejecutar sentencias ALTER TABLE manualmente en tu base de datos
-    // o usar una herramienta de migración.
-    // Por ejemplo, para agregar las nuevas columnas a 'addresses' y 'status' a 'orders':
+    // o usar una herramienta de migración de base de datos.
+    // Aquí están los comandos ALTER TABLE para añadir las nuevas columnas a las tablas existentes:
     /*
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS name VARCHAR(255);
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(255);
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS references TEXT;
+    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "references" TEXT; -- ¡Con comillas!
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 7);
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 7);
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'activo';

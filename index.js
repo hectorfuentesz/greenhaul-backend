@@ -1,4 +1,4 @@
-// Archivo: index.js (Versión Completa y Modificada)
+// Archivo: index.js (Versión Final y Completa)
 
 // Importa módulos necesarios
 const express = require('express');        // Framework web para Node.js
@@ -122,6 +122,7 @@ app.put('/api/users/:id', async (req, res) => {
 
     // Agrega campos al array 'updates' y 'values' solo si están presentes en el body
     // Esto permite actualizaciones parciales del perfil.
+    // Nota: El frontend actual solo envía email y whatsapp, pero mantenemos flexibilidad para el futuro.
     if (name !== undefined) { updates.push(`name = $${queryIndex++}`); values.push(name); }
     if (surname !== undefined) { updates.push(`surname = $${queryIndex++}`); values.push(surname); }
     if (email !== undefined) { updates.push(`email = $${queryIndex++}`); values.push(email); }
@@ -158,7 +159,7 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
-// --- NUEVA RUTA: OBTENER ESTADÍSTICAS CONSOLIDADAS DEL DASHBOARD PARA UN USUARIO ---
+// --- RUTA: OBTENER ESTADÍSTICAS CONSOLIDADAS DEL DASHBOARD PARA UN USUARIO ---
 // Proporciona datos para los widgets y gráficos del resumen de la cuenta.
 app.get('/api/users/:userId/dashboard', async (req, res) => {
   const { userId } = req.params; // ID del usuario del que se obtendrán los datos
@@ -194,20 +195,21 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
     const recent_orders = recentOrdersResult.rows.map(order => ({
       id: order.id,
       total: parseFloat(order.total).toFixed(2), // Formatear a 2 decimales
-      date: new Date(order.date).toLocaleDateString('es-MX'), // Formato de fecha localizado
+      date: new Date(order.date).toLocaleDateString('es-MX'), // Formato de fecha localizado (ej. "15 de julio de 2024")
       status: order.status
     }));
 
     // --- 5. PLACEHOLDERS (Datos Simulados) PARA AHORRO DE CO2 ---
     // NOTA: La lógica real para calcular estos valores debería basarse en los
-    // servicios completados por el usuario y su impacto ambiental.
+    // servicios completados por el usuario y su impacto ambiental (ej. peso transportado, distancia, tipo de vehículo).
     // Estos valores son solo para que el frontend pueda renderizar los widgets
-    // y el gráfico sin errores.
+    // y el gráfico sin errores hasta que la lógica real sea implementada.
     const ahorro_kg_co2 = 120.5; // Ejemplo: 120.5 kg de CO2 ahorrados
-    const arboles_equivalentes = Math.floor(ahorro_kg_co2 / 21); // Equivalencia aproximada: 1 árbol/año absorbe ~21 kg de CO2
+    const arboles_equivalentes = Math.floor(ahorro_kg_co2 / 21); // Equivalencia aproximada: 1 árbol maduro/año absorbe ~21 kg de CO2
     const km_equivalentes = Math.floor(ahorro_kg_co2 / 0.12);   // Equivalencia aproximada: 1 km en auto emite ~0.12 kg de CO2
 
     // Datos históricos de ahorro (simulados para el gráfico del frontend)
+    // Deberían representar el ahorro acumulado a lo largo del tiempo.
     const ahorro_historico = [
       { fecha: 'Ene', ahorro: 10 },
       { fecha: 'Feb', ahorro: 25 },
@@ -217,7 +219,7 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
       { fecha: 'Jun', ahorro: 120.5 }
     ];
 
-    // Envía todos los datos consolidados del dashboard
+    // Envía todos los datos consolidados del dashboard en una sola respuesta JSON
     res.status(200).json({
       pedidos_activos,
       pedidos_completados,
@@ -242,9 +244,10 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
 app.get('/api/users/:userId/addresses', async (req, res) => {
   const { userId } = req.params;
   try {
-    // Selecciona todos los campos de la tabla 'addresses' para un usuario específico
+    // Selecciona todos los campos de la tabla 'addresses' para un usuario específico,
+    // incluyendo los nuevos campos y el correcto escape de "references".
     const result = await db.query(
-      'SELECT id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude FROM addresses WHERE user_id = $1 ORDER BY id DESC',
+      'SELECT id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude FROM addresses WHERE user_id = $1 ORDER BY id DESC',
       [userId]
     );
     res.status(200).json(result.rows);
@@ -258,9 +261,9 @@ app.get('/api/users/:userId/addresses', async (req, res) => {
 app.get('/api/addresses/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // Selecciona una dirección por su ID
+    // Selecciona una dirección por su ID, con todos los campos incluyendo "references".
     const result = await db.query(
-      'SELECT id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude FROM addresses WHERE id = $1',
+      'SELECT id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude FROM addresses WHERE id = $1',
       [id]
     );
     if (result.rows.length === 0) {
@@ -276,18 +279,19 @@ app.get('/api/addresses/:id', async (req, res) => {
 // --- Crear una nueva dirección para un usuario ---
 app.post('/api/users/:userId/addresses', async (req, res) => {
   const { userId } = req.params;
-  // Desestructura todos los campos de la dirección, incluyendo los nuevos
+  // Desestructura todos los campos de la dirección del cuerpo de la petición, incluyendo los nuevos.
   const { name, street, neighborhood, city, state, postal_code, references, latitude, longitude } = req.body;
 
-  // Validación básica para los campos obligatorios
+  // Validación básica para los campos obligatorios.
   if (!street || !city) {
       return res.status(400).json({ message: 'La calle y la ciudad son obligatorias para la dirección.' });
   }
 
   try {
-    // Inserta la nueva dirección con todos sus campos. RETURNING * devuelve el registro completo.
+    // Inserta la nueva dirección con todos sus campos.
+    // Los nombres de columna con comillas dobles son necesarios para "references".
     const result = await db.query(
-      'INSERT INTO addresses (user_id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude',
+      'INSERT INTO addresses (user_id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude',
       [userId, name, street, neighborhood, city, state, postal_code, references, latitude, longitude]
     );
     res.status(201).json({ message: 'Dirección guardada correctamente.', address: result.rows[0] });
@@ -300,16 +304,17 @@ app.post('/api/users/:userId/addresses', async (req, res) => {
 // --- Actualizar una dirección existente ---
 app.put('/api/addresses/:id', async (req, res) => {
   const { id } = req.params;
-  // Desestructura todos los campos actualizables
+  // Desestructura todos los campos actualizables del cuerpo de la petición.
   const { name, street, neighborhood, city, state, postal_code, references, latitude, longitude } = req.body;
 
-  // Validación básica
+  // Validación básica.
   if (!street || !city) {
       return res.status(400).json({ message: 'La calle y la ciudad son obligatorias para la dirección.' });
   }
 
   try {
-    // Actualiza la dirección con los nuevos valores. RETURNING * devuelve el registro actualizado.
+    // Actualiza la dirección con los nuevos valores.
+    // Se usa "references" entre comillas dobles en la sentencia SQL.
     const result = await db.query(
       `UPDATE addresses SET 
         name = $1, 
@@ -318,11 +323,11 @@ app.put('/api/addresses/:id', async (req, res) => {
         city = $4, 
         state = $5, 
         postal_code = $6, 
-        references = $7,
+        "references" = $7, -- ¡CORRECCIÓN CLAVE!
         latitude = $8,
         longitude = $9
        WHERE id = $10 
-       RETURNING id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude`,
+       RETURNING id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude`,
       [name, street, neighborhood, city, state, postal_code, references, latitude, longitude, id]
     );
     if (result.rows.length === 0) {
@@ -339,9 +344,9 @@ app.put('/api/addresses/:id', async (req, res) => {
 app.delete('/api/addresses/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // Elimina la dirección por su ID
+    // Elimina la dirección por su ID.
     const result = await db.query(
-      'DELETE FROM addresses WHERE id = $1 RETURNING *', // RETURNING * opcional para verificar la eliminación
+      'DELETE FROM addresses WHERE id = $1 RETURNING *', // RETURNING * opcional para verificar que se eliminó algo
       [id]
     );
     if (result.rows.length === 0) {
@@ -361,12 +366,12 @@ app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
     // Selecciona las órdenes del usuario, incluyendo el nuevo campo 'status'
-    // Y renombra las columnas para que coincidan con lo que espera el frontend
+    // Y renombra las columnas para que coincidan con lo que espera el frontend ('total', 'date').
     const result = await db.query(
       'SELECT id, total_amount AS total, order_date AS date, status FROM orders WHERE user_id = $1 ORDER BY order_date DESC',
       [userId]
     );
-    // Formatea los datos para el frontend: total a 2 decimales y fecha legible
+    // Mapea los resultados para formatear el total a 2 decimales y la fecha a un formato legible.
     const formattedOrders = result.rows.map(order => ({
       id: order.id,
       total: parseFloat(order.total).toFixed(2),
@@ -385,13 +390,13 @@ app.get('/api/users/:userId/orders', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   const { user_id, total_amount, status = 'activo' } = req.body; // Permite status opcional, por defecto 'activo'
 
-  // Validación básica
+  // Validación básica.
   if (!user_id || !total_amount) {
     return res.status(400).json({ message: 'El ID de usuario y el monto total son obligatorios para crear una orden.' });
   }
 
   try {
-    // Inserta una nueva orden con user_id, total_amount y status
+    // Inserta una nueva orden con user_id, total_amount y status.
     const result = await db.query(
       'INSERT INTO orders (user_id, total_amount, status) VALUES ($1, $2, $3) RETURNING *',
       [user_id, total_amount, status]
