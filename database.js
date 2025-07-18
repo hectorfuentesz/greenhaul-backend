@@ -1,18 +1,25 @@
-// Archivo: database.js (Versión Final y Completa - CORRECCIÓN DE SINTAXIS)
+// Archivo: database.js (Versión Final, Completa y Corregida sin Guion)
 
 const { Client } = require('pg');
 
+// Configuración de la conexión a PostgreSQL.
+// Utiliza la variable de entorno DATABASE_URL proporcionada por Railway o tu entorno local.
 const client = new Client({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false
+    // Es importante configurar SSL para conexiones a bases de datos en la nube como Railway.
+    // En desarrollo, `rejectUnauthorized: false` puede ser necesario si no tienes un certificado CA validado.
+    // Para producción, se recomienda una configuración SSL más estricta si es posible y si el proveedor de DB lo permite.
+    rejectUnauthorized: false 
   }
 });
 
 // --- Definiciones de tablas SQL ---
+// Cada bloque `CREATE TABLE IF NOT EXISTS` asegura que la tabla solo se creará
+// si aún no existe en la base de datos. Esto previene errores en ejecuciones posteriores.
 
 // Tabla 'users': Almacena la información de los usuarios registrados.
-// ¡CORRECCIÓN: Eliminado el guion '-' antes de 'name'!
+// ¡CORRECCIÓN: Se eliminó el guion '-' antes de 'name' en la línea de 'name VARCHAR(100) NOT NULL' !
 const createTableQueryUsers = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,        -- Identificador único auto-incremental para el usuario
@@ -28,7 +35,7 @@ const createTableQueryUsers = `
 // Tabla 'addresses': Almacena las direcciones asociadas a los usuarios.
 // Se han añadido columnas para 'name', 'neighborhood', '"references"', 'latitude', y 'longitude'.
 // Nota: "references" está entre comillas dobles porque 'REFERENCES' es una palabra clave reservada en SQL.
-// ¡IMPORTANTE! 'latitude' y 'longitude' NO tienen 'NOT NULL', permitiendo que sean opcionales.
+// 'latitude' y 'longitude' NO tienen 'NOT NULL', permitiendo que sean opcionales.
 const createTableQueryAddresses = `
   CREATE TABLE IF NOT EXISTS addresses (
     id SERIAL PRIMARY KEY,        -- Identificador único auto-incremental para la dirección
@@ -39,9 +46,9 @@ const createTableQueryAddresses = `
     city VARCHAR(100) NOT NULL,   -- Ciudad de la dirección
     state VARCHAR(100),           -- Estado de la dirección
     postal_code VARCHAR(20),      -- Código Postal de la dirección
-    "references" TEXT,            -- ¡CORRECCIÓN CLAVE! Descripción o referencias adicionales sobre la ubicación.
-    latitude NUMERIC(10, 7),      -- Latitud de la ubicación geográfica (precisión 7 decimales para mapas), AHORA ES OPCIONAL
-    longitude NUMERIC(10, 7),     -- Longitud de la ubicación geográfica (precisión 7 decimales para mapas), AHORA ES OPCIONAL
+    "references" TEXT,            -- Descripción o referencias adicionales sobre la ubicación (escapado con comillas dobles)
+    latitude NUMERIC(10, 7),      -- Latitud de la ubicación geográfica (precisión 7 decimales para mapas), es OPCIONAL
+    longitude NUMERIC(10, 7),     -- Longitud de la ubicación geográfica (precisión 7 decimales para mapas), es OPCIONAL
     country VARCHAR(100) DEFAULT 'México', -- País (valor por defecto 'México')
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Marca de tiempo de cuándo fue creada esta dirección
   );
@@ -70,33 +77,48 @@ const createTableQueryOrderItems = `
   );
 `;
 
+/**
+ * Función asíncrona para establecer la conexión a la base de datos
+ * y verificar/crear todas las tablas si no existen.
+ * Es crucial que esta función se ejecute antes de que el servidor comience a manejar peticiones.
+ */
 async function connectAndSetupDatabase() {
   try {
     await client.connect();
     console.log('✅ Conectado exitosamente a la base de datos PostgreSQL en Railway.');
     
+    // Ejecutar la creación de tablas. Cada `client.query` ejecuta la sentencia SQL.
+    // La cláusula `IF NOT EXISTS` previene errores si las tablas ya existen.
+    
     // ATENCIÓN: Si ya tenías tu base de datos creada en Railway con columnas antiguas
     // o con restricciones NOT NULL que ya no deseas,
     // DEBES ejecutar manualmente comandos ALTER TABLE en tu consola SQL de Railway
     // (o en tu herramienta de gestión de bases de datos) para actualizar el esquema.
-    // Ejemplos de comandos ALTER TABLE que podrías necesitar ejecutar:
+    // Ejemplos de comandos ALTER TABLE que podrías necesitar ejecutar para asegurar
+    // que tu esquema de DB en Railway coincida con este database.js:
     /*
-    -- Para eliminar columnas si ya no las quieres y existían
+    -- Para la tabla 'users':
+    -- Si la columna 'name' fue creada con el '-' extra o con otra definición, puedes corregirla:
+    -- ALTER TABLE users RENAME COLUMN "-name" TO name; -- Si la creó con el nombre incorrecto
+    -- ALTER TABLE users ALTER COLUMN name TYPE VARCHAR(100); -- Si el tipo de dato es incorrecto
+    -- ALTER TABLE users ALTER COLUMN name SET NOT NULL; -- Si quieres asegurarte de que sea NOT NULL
+
+    -- Para eliminar columnas de 'addresses' si ya no las quieres y existían
     ALTER TABLE addresses DROP COLUMN IF EXISTS latitude;
     ALTER TABLE addresses DROP COLUMN IF EXISTS longitude;
     
-    -- Para añadir columnas si faltan y asegurar que permitan NULLs
+    -- Para añadir columnas a 'addresses' si faltan y asegurar que permitan NULLs
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS name VARCHAR(255);
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(255);
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "references" TEXT; -- Con comillas!
+    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "references" TEXT; -- ¡Con comillas!
     -- Si estas columnas ya existían pero como NOT NULL, cámbialas a NULLABLE:
     ALTER TABLE addresses ALTER COLUMN name DROP NOT NULL;
     ALTER TABLE addresses ALTER COLUMN neighborhood DROP NOT NULL;
     ALTER TABLE addresses ALTER COLUMN "references" DROP NOT NULL;
 
-    -- Si 'status' falta en orders o si quieres que sea NULLABLE:
+    -- Para la tabla 'orders' si 'status' falta o quieres que sea NULLABLE:
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'activo';
-    ALTER TABLE orders ALTER COLUMN status DROP NOT NULL;
+    ALTER TABLE orders ALTER COLUMN status DROP NOT NULL; -- Si quieres que status sea NULLABLE
     */
 
     await client.query(createTableQueryUsers);
@@ -110,10 +132,14 @@ async function connectAndSetupDatabase() {
 
   } catch (err) {
     console.error("❌ Error al conectar o configurar la base de datos:", err.stack);
+    // Si la conexión o configuración de la base de datos falla, el proceso debe salir
+    // para evitar que la aplicación intente funcionar sin una DB funcional.
     process.exit(1); 
   }
 }
 
+// Exporta el cliente de la base de datos (`db`) para que pueda ser utilizado en `index.js`
+// y la función `connectAndSetupDatabase` para iniciar la conexión.
 module.exports = {
   db: client,
   connectAndSetupDatabase
