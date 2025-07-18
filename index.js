@@ -1,4 +1,4 @@
-// Archivo: index.js (Versión Final y Completa con Guardado de Order_Items)
+// Archivo: index.js (Versión Final y Completa)
 
 // Importa módulos necesarios
 const express = require('express');        // Framework web para construir APIs REST
@@ -431,8 +431,8 @@ app.post('/api/orders', async (req, res) => {
     for (const item of cartItems) {
       // Validación básica para cada ítem individual del carrito.
       // `item.name` es el nombre del producto que viene del frontend.
-      if (!item.name || !item.quantity || item.price === undefined) {
-          throw new Error('Cada ítem del carrito debe tener nombre, cantidad y precio definidos.');
+      if (!item.name || item.name.trim() === '' || !item.quantity || item.price === undefined || item.price < 0) {
+          throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
       }
 
       const itemInsertQuery = `
@@ -458,7 +458,7 @@ app.post('/api/orders', async (req, res) => {
       await clientDbTransaction.query('ROLLBACK'); // Revertir todos los cambios realizados en la transacción.
     }
     console.error("❌ Error POST /api/orders:", err);
-    // Devuelve un mensaje de error detallado al cliente, incluyendo el mensaje original del error si está disponible.
+    // Devuelve un mensaje de error detallado al cliente.
     res.status(500).json({ message: `Error al crear la orden: ${err.message || 'Error interno del servidor.'}` });
   } finally {
     // 7. Liberar el cliente de la base de datos de vuelta a la pool de conexiones. Esto es crucial para la eficiencia.
