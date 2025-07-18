@@ -204,7 +204,7 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
     // Mapea los resultados de la base de datos a un formato más amigable para el frontend.
     const recent_orders = recentOrdersResult.rows.map(order => ({
       // Aquí se devuelve el order_folio para la visualización en el dashboard si lo necesitas
-      id: order.order_folio, // Asegúrate que el frontend espera 'id' o ajusta aquí.
+      id: order.order_folio, // ¡IMPORTANTE! Aquí se usa el order_folio para el "id" visible en el frontend
       total: parseFloat(order.total).toFixed(2), 
       date: new Date(order.date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }), 
       status: order.status
