@@ -1,28 +1,22 @@
-// Archivo: database.js (Versión Final y Completa)
+// Archivo: database.js (Versión Final y Completa - CORRECCIÓN DE SINTAXIS)
 
 const { Client } = require('pg');
 
-// Configuración de la conexión a PostgreSQL.
-// Utiliza la variable de entorno DATABASE_URL proporcionada por Railway o tu entorno local.
 const client = new Client({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    // Es importante configurar SSL para conexiones a bases de datos en la nube como Railway.
-    // En desarrollo, `rejectUnauthorized: false` puede ser necesario si no tienes un certificado CA validado.
-    // Para producción, se recomienda una configuración SSL más estricta si es posible y si el proveedor de DB lo permite.
-    rejectUnauthorized: false 
+    rejectUnauthorized: false
   }
 });
 
 // --- Definiciones de tablas SQL ---
-// Cada bloque `CREATE TABLE IF NOT EXISTS` asegura que la tabla solo se creará
-// si aún no existe en la base de datos. Esto previene errores en ejecuciones posteriores.
 
 // Tabla 'users': Almacena la información de los usuarios registrados.
+// ¡CORRECCIÓN: Eliminado el guion '-' antes de 'name'!
 const createTableQueryUsers = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,        -- Identificador único auto-incremental para el usuario
-    -name VARCHAR(100) NOT NULL,   -- Nombre del usuario
+    name VARCHAR(100) NOT NULL,   -- Nombre del usuario
     surname VARCHAR(100) NOT NULL, -- Apellido del usuario
     email VARCHAR(100) NOT NULL UNIQUE, -- Correo electrónico del usuario (debe ser único en la tabla)
     password VARCHAR(100) NOT NULL, -- Contraseña del usuario (almacenada como hash por seguridad)
@@ -76,18 +70,10 @@ const createTableQueryOrderItems = `
   );
 `;
 
-/**
- * Función asíncrona para establecer la conexión a la base de datos
- * y verificar/crear todas las tablas si no existen.
- * Es crucial que esta función se ejecute antes de que el servidor comience a manejar peticiones.
- */
 async function connectAndSetupDatabase() {
   try {
     await client.connect();
     console.log('✅ Conectado exitosamente a la base de datos PostgreSQL en Railway.');
-    
-    // Ejecutar la creación de tablas. Cada `client.query` ejecuta la sentencia SQL.
-    // La cláusula `IF NOT EXISTS` previene errores si las tablas ya existen.
     
     // ATENCIÓN: Si ya tenías tu base de datos creada en Railway con columnas antiguas
     // o con restricciones NOT NULL que ya no deseas,
@@ -102,16 +88,15 @@ async function connectAndSetupDatabase() {
     -- Para añadir columnas si faltan y asegurar que permitan NULLs
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS name VARCHAR(255);
     ALTER TABLE addresses ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(255);
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "references" TEXT; -- ¡Con comillas!
+    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS "references" TEXT; -- Con comillas!
     -- Si estas columnas ya existían pero como NOT NULL, cámbialas a NULLABLE:
     ALTER TABLE addresses ALTER COLUMN name DROP NOT NULL;
     ALTER TABLE addresses ALTER COLUMN neighborhood DROP NOT NULL;
     ALTER TABLE addresses ALTER COLUMN "references" DROP NOT NULL;
-    ALTER TABLE addresses ALTER COLUMN latitude DROP NOT NULL; -- Si decidiste mantener lat/lng pero opcional
-    ALTER TABLE addresses ALTER COLUMN longitude DROP NOT NULL; -- Si decidiste mantener lat/lng pero opcional
 
+    -- Si 'status' falta en orders o si quieres que sea NULLABLE:
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'activo';
-    ALTER TABLE orders ALTER COLUMN status DROP NOT NULL; -- Si quieres que status sea NULLABLE
+    ALTER TABLE orders ALTER COLUMN status DROP NOT NULL;
     */
 
     await client.query(createTableQueryUsers);
@@ -125,14 +110,10 @@ async function connectAndSetupDatabase() {
 
   } catch (err) {
     console.error("❌ Error al conectar o configurar la base de datos:", err.stack);
-    // Si la conexión o configuración de la base de datos falla, el proceso debe salir
-    // para evitar que la aplicación intente funcionar sin una DB funcional.
     process.exit(1); 
   }
 }
 
-// Exporta el cliente de la base de datos (`db`) para que pueda ser utilizado en `index.js`
-// y la función `connectAndSetupDatabase` para iniciar la conexión.
 module.exports = {
   db: client,
   connectAndSetupDatabase
