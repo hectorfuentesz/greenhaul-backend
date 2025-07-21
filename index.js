@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend completo con soporte de direcciones en órdenes)
+// Archivo: index.js (GreenHaul backend completo con soporte de tabla order_addresses para vincular pedidos y direcciones)
 
 const express = require('express');
 const cors = require('cors');
@@ -145,7 +145,6 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
       date: new Date(order.date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }),
       status: order.status
     }));
-    // Placeholders para ahorro de CO2
     const ahorro_kg_co2 = 120.5;
     const arboles_equivalentes = Math.floor(ahorro_kg_co2 / 21);
     const km_equivalentes = Math.floor(ahorro_kg_co2 / 0.12);
@@ -269,15 +268,54 @@ app.delete('/api/addresses/:id', async (req, res) => {
   }
 });
 
-// =============== RUTAS PARA GESTIÓN DE ÓRDENES/PEDIDOS ===============
+// =============== NUEVA TABLA: order_addresses ===============
+
+// (Recomendado: ejecuta esta migración en Railway)
+// CREATE TABLE IF NOT EXISTS order_addresses (
+//   id SERIAL PRIMARY KEY,
+//   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+//   order_folio VARCHAR(50) NOT NULL REFERENCES orders(order_folio) ON DELETE CASCADE,
+//   delivery_address_id INTEGER REFERENCES addresses(id),
+//   pickup_address_id INTEGER REFERENCES addresses(id),
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+// );
+
+// --- Obtener las direcciones asociadas a una orden (por folio o por ID) ---
+app.get('/api/orders/:orderFolio/addresses', async (req, res) => {
+  const { orderFolio } = req.params;
+  try {
+    const result = await db.query(
+      `SELECT oa.*, 
+              da.name AS delivery_name, da.street AS delivery_street, da.neighborhood AS delivery_neighborhood, 
+              da.city AS delivery_city, da.state AS delivery_state, da.postal_code AS delivery_postal_code, da."references" AS delivery_references,
+              da.latitude AS delivery_latitude, da.longitude AS delivery_longitude,
+              pa.name AS pickup_name, pa.street AS pickup_street, pa.neighborhood AS pickup_neighborhood,
+              pa.city AS pickup_city, pa.state AS pickup_state, pa.postal_code AS pickup_postal_code, pa."references" AS pickup_references,
+              pa.latitude AS pickup_latitude, pa.longitude AS pickup_longitude
+         FROM order_addresses oa
+    LEFT JOIN addresses da ON oa.delivery_address_id = da.id
+    LEFT JOIN addresses pa ON oa.pickup_address_id = pa.id
+        WHERE oa.order_folio = $1`,
+      [orderFolio]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No hay direcciones vinculadas a ese pedido.' });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Error GET /api/orders/:orderFolio/addresses:", err);
+    res.status(500).json({ message: 'Error al obtener las direcciones de la orden.' });
+  }
+});
+
+// =============== ÓRDENES ===============
 
 // Obtener todas las órdenes de un usuario
 app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
     const result = await db.query(
-      `SELECT id, total_amount AS total, order_date AS date, status, order_folio, 
-              delivery_address, pickup_address 
+      `SELECT id, total_amount AS total, order_date AS date, status, order_folio 
        FROM orders WHERE user_id = $1 ORDER BY order_date DESC`,
       [userId]
     );
@@ -285,9 +323,7 @@ app.get('/api/users/:userId/orders', async (req, res) => {
       id: order.order_folio,
       total: parseFloat(order.total).toFixed(2),
       date: new Date(order.date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      status: order.status,
-      delivery_address: order.delivery_address,
-      pickup_address: order.pickup_address
+      status: order.status
     }));
     res.status(200).json(formattedOrders);
   } catch (err) {
@@ -296,14 +332,14 @@ app.get('/api/users/:userId/orders', async (req, res) => {
   }
 });
 
-// Crear una nueva orden con direcciones
+// Crear una nueva orden (con vinculación en order_addresses)
 app.post('/api/orders', async (req, res) => {
-  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address, pickup_address } = req.body;
+  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id } = req.body; 
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
     return res.status(400).json({ message: 'El ID de usuario, el monto total y al menos un ítem de carrito son obligatorios para crear una orden.' });
   }
-  if (!delivery_address || !pickup_address) {
-    return res.status(400).json({ message: 'Debes proporcionar las direcciones de entrega y recolección.' });
+  if (!delivery_address_id || !pickup_address_id) {
+    return res.status(400).json({ message: 'Debes proporcionar los IDs de las direcciones de entrega y recolección.' });
   }
   let clientDbTransaction;
   try {
@@ -312,18 +348,17 @@ app.post('/api/orders', async (req, res) => {
     const timestamp = Date.now();
     const randomSuffix = Math.floor(Math.random() * 10000);
     const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
-    const orderInsertQuery = `
-      INSERT INTO orders (user_id, total_amount, status, order_date, order_folio, delivery_address, pickup_address)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, order_folio
-    `;
-    const orderInsertValues = [
-      user_id, total_amount, status, new Date(), generatedOrderFolio,
-      delivery_address, pickup_address
-    ];
+    // 1. Insertar en orders
+    const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
+    const orderInsertValues = [user_id, total_amount, status, new Date(), generatedOrderFolio]; 
     const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
     const orderId = orderResult.rows[0].id;
     const orderFolio = orderResult.rows[0].order_folio;
+    // 2. Insertar vínculo en order_addresses
+    const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
+                     VALUES ($1, $2, $3, $4) RETURNING id;`;
+    await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
+    // 3. Insertar los items
     for (const item of cartItems) {
       if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
         throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
@@ -336,21 +371,17 @@ app.post('/api/orders', async (req, res) => {
       await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
     }
     await clientDbTransaction.query('COMMIT');
-    res.status(201).json({ message: 'Orden creada correctamente y todos los ítems guardados.', order: { id: orderFolio } });
+    res.status(201).json({ message: 'Orden creada correctamente y direcciones vinculadas.', order: { id: orderFolio } });
   } catch (err) {
-    if (clientDbTransaction) {
-      await clientDbTransaction.query('ROLLBACK');
-    }
+    if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
     console.error("❌ Error POST /api/orders:", err);
     if (err.code === '23505' && err.detail && err.detail.includes('order_folio')) {
-      res.status(500).json({ message: `Error al crear la orden: El número de folio generado ya existe. Por favor, intenta de nuevo.` });
+        res.status(500).json({ message: `Error al crear la orden: El número de folio generado ya existe. Por favor, intenta de nuevo.` });
     } else {
-      res.status(500).json({ message: `Error al crear la orden: ${err.message || 'Error interno del servidor.'}` });
+        res.status(500).json({ message: `Error al crear la orden: ${err.message || 'Error interno del servidor.'}` });
     }
   } finally {
-    if (clientDbTransaction) {
-      clientDbTransaction.release();
-    }
+    if (clientDbTransaction) clientDbTransaction.release();
   }
 });
 
