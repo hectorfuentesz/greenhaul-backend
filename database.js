@@ -1,4 +1,4 @@
-// Archivo: database.js (Versión Final y Limpia, con tabla order_addresses incluida)
+// Archivo: database.js (Versión Final, con tabla contact_messages incluida)
 
 const { Pool } = require('pg');
 
@@ -79,6 +79,17 @@ const createTableQueryOrderAddresses = `
   );
 `;
 
+// Tabla 'contact_messages'
+const createTableQueryContactMessages = `
+  CREATE TABLE IF NOT EXISTS contact_messages (
+    id SERIAL PRIMARY KEY,
+    full_name VARCHAR(200) NOT NULL,
+    email VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
 // Función para crear todas las tablas al iniciar el backend.
 async function connectAndSetupDatabase() {
   let clientForSetup;
@@ -94,6 +105,8 @@ async function connectAndSetupDatabase() {
     console.log("Tabla 'order_items' verificada/creada.");
     await clientForSetup.query(createTableQueryOrderAddresses);
     console.log("Tabla 'order_addresses' verificada/creada.");
+    await clientForSetup.query(createTableQueryContactMessages);
+    console.log("Tabla 'contact_messages' verificada/creada.");
     console.log('✅ Base de datos PostgreSQL en Railway verificada/configurada.');
   } catch (err) {
     console.error("❌ Error CRÍTICO al conectar o configurar la base de datos (setup):", err.stack);

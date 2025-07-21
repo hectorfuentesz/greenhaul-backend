@@ -405,6 +405,25 @@ app.post('/api/orders', async (req, res) => {
 
 // --- Inicia el servidor ---
 async function startServer() {
+
+  // === Mensajes de Contacto ===
+app.post('/api/contact', async (req, res) => {
+  const { full_name, email, message } = req.body;
+  if (!full_name || !email || !message) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+  }
+  try {
+    await db.query(
+      'INSERT INTO contact_messages (full_name, email, message) VALUES ($1, $2, $3)',
+      [full_name, email, message]
+    );
+    res.status(201).json({ message: '¡Mensaje enviado correctamente! Pronto te contactaremos.' });
+  } catch (err) {
+    console.error('❌ Error al guardar mensaje de contacto:', err);
+    res.status(500).json({ message: 'Error interno al enviar tu mensaje.' });
+  }
+});
+
   await connectAndSetupDatabase();
   app.listen(PORT, () => {
     console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
