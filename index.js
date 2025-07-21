@@ -217,6 +217,24 @@ app.post('/api/users/:userId/addresses', async (req, res) => {
   }
 });
 
+// Crear una nueva dirección (POST /api/addresses)
+app.post('/api/addresses', async (req, res) => {
+  const { user_id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude } = req.body;
+  if (!user_id || !street || !city) {
+    return res.status(400).json({ message: 'user_id, calle y ciudad son obligatorios para guardar una dirección.' });
+  }
+  try {
+    const result = await db.query(
+      'INSERT INTO addresses (user_id, name, street, neighborhood, city, state, postal_code, "references", latitude, longitude) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *;',
+      [user_id, name, street, neighborhood, city, state, postal_code, references, latitude, longitude]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Error POST /api/addresses:", err);
+    res.status(500).json({ message: 'Error interno al guardar la dirección.' });
+  }
+});
+
 // Actualizar una dirección existente
 app.put('/api/addresses/:id', async (req, res) => {
   const { id } = req.params;
