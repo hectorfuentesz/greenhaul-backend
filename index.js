@@ -415,10 +415,27 @@ app.post('/api/orders', async (req, res) => {
 app.post('/api/pagos', async (req, res) => {
   const { conektaToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
 
-  // Validaciones
-  if (!conektaToken || !monto || !user_id || !email || !nombre || !cartItems || !delivery_address_id || !pickup_address_id) {
-    return res.status(400).json({ message: 'Faltan datos para procesar el pago.' });
-  }
+  // Debug: log todos los datos recibidos
+  console.log({
+    conektaToken,
+    monto,
+    user_id,
+    email,
+    nombre,
+    cartItems,
+    delivery_address_id,
+    pickup_address_id
+  });
+
+  // Validaciones campo por campo
+  if (!conektaToken) return res.status(400).json({ message: 'Falta el token de pago.' });
+  if (!monto) return res.status(400).json({ message: 'Falta el monto.' });
+  if (!user_id) return res.status(400).json({ message: 'Falta el usuario.' });
+  if (!email) return res.status(400).json({ message: 'Falta el email.' });
+  if (!nombre) return res.status(400).json({ message: 'Falta el nombre.' });
+  if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) return res.status(400).json({ message: 'Faltan los items del carrito.' });
+  if (!delivery_address_id) return res.status(400).json({ message: 'Falta la dirección de entrega.' });
+  if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
     // Procesar pago con Conekta
