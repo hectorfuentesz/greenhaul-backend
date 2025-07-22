@@ -444,24 +444,24 @@ app.post('/api/pagos', async (req, res) => {
 
   try {
     // Procesar pago con Conekta (versión SDK 6.x)
-    const order = await Order.create({
-      currency: 'MXN',
-      customer_info: {
-        name: nombre,
-        email: email,
-      },
-      line_items: [{
-        name: 'Pago GreenHaul',
-        unit_price: Math.round(monto * 100), // monto en centavos
-        quantity: 1
-      }],
-      charges: [{
-        payment_method: {
-          type: 'card',
-          token_id: conektaToken
-        }
-      }]
-    });
+const order = await conekta.orders.create({
+  currency: 'MXN',
+  customer_info: {
+    name: nombre,
+    email: email,
+  },
+  line_items: [{
+    name: 'Pago GreenHaul',
+    unit_price: Math.round(monto * 100),
+    quantity: 1
+  }],
+  charges: [{
+    payment_method: {
+      type: 'card',
+      token_id: conektaToken
+    }
+  }]
+});
 
     // Si el pago fue exitoso, guardar la orden en BD
     let clientDbTransaction;
