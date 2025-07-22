@@ -9,7 +9,11 @@ const bcrypt = require('bcryptjs');
 // --------- INTEGRACIÓN CONEKTA ----------
 const conekta = require('conekta');
 conekta.api_key = 'key_4NE2J8Zxav6tG8SCMXyA0Kb';
+conekta.api_version = '2.1.0'; // Establecer explícitamente la versión
 conekta.locale = 'es';
+
+const { Order } = conekta;
+
 // ----------------------------------------
 
 const app = express();
@@ -440,7 +444,7 @@ app.post('/api/pagos', async (req, res) => {
 
   try {
     // Procesar pago con Conekta (versión SDK 6.x)
-    const order = await conekta.order.create({
+    const order = await Order.create({
       currency: 'MXN',
       customer_info: {
         name: nombre,
