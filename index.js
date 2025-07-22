@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend completo con integración de pagos Conekta - CORRECTO)
+// Archivo: index.js (GreenHaul backend completo con integración de pagos Mercado Pago)
 
 // --- Dependencias ---
 const express = require('express');
@@ -6,14 +6,11 @@ const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 
-// --------- INTEGRACIÓN CONEKTA ----------
-const conekta = require('conekta');
-conekta.api_key = 'key_4NE2J8Zxav6tG8SCMXyA0Kb';
-conekta.api_version = '2.1.0'; // Establecer explícitamente la versión
-conekta.locale = 'es';
-
-const { Order } = conekta;
-
+// --------- INTEGRACIÓN MERCADO PAGO ----------
+const mercadopago = require('mercadopago');
+mercadopago.configure({
+  access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
+});
 // ----------------------------------------
 
 const app = express();
@@ -414,15 +411,15 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// =============== PAGO CONEKTA ===============
+// =============== PAGO MERCADO PAGO ===============
 // Endpoint para recibir el token, procesar el pago y guardar la orden SOLO si el pago es exitoso
 
-app.post('/api/pagos', async (req, res) => {
-  const { conektaToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
+app.post('/api/mercadopago', async (req, res) => {
+  const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
 
   // Debug: log todos los datos recibidos
   console.log({
-    conektaToken,
+    mercadoPagoToken,
     monto,
     user_id,
     email,
@@ -433,7 +430,7 @@ app.post('/api/pagos', async (req, res) => {
   });
 
   // Validaciones campo por campo
-  if (!conektaToken) return res.status(400).json({ message: 'Falta el token de pago.' });
+  if (!mercadoPagoToken) return res.status(400).json({ message: 'Falta el token de pago de Mercado Pago.' });
   if (!monto) return res.status(400).json({ message: 'Falta el monto.' });
   if (!user_id) return res.status(400).json({ message: 'Falta el usuario.' });
   if (!email) return res.status(400).json({ message: 'Falta el email.' });
@@ -443,77 +440,73 @@ app.post('/api/pagos', async (req, res) => {
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
-    // Procesar pago con Conekta (versión SDK 6.x)
-const order = await conekta.orders.create({
-  currency: 'MXN',
-  customer_info: {
-    name: nombre,
-    email: email,
-  },
-  line_items: [{
-    name: 'Pago GreenHaul',
-    unit_price: Math.round(monto * 100),
-    quantity: 1
-  }],
-  charges: [{
-    payment_method: {
-      type: 'card',
-      token_id: conektaToken
-    }
-  }]
-});
-
-    // Si el pago fue exitoso, guardar la orden en BD
-    let clientDbTransaction;
-    try {
-      clientDbTransaction = await db.connect();
-      await clientDbTransaction.query('BEGIN');
-      const timestamp = Date.now();
-      const randomSuffix = Math.floor(Math.random() * 10000);
-      const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
-      // 1. Insertar en orders
-      const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
-      const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
-      const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
-      const orderId = orderResult.rows[0].id;
-      const orderFolio = orderResult.rows[0].order_folio;
-      // 2. Insertar vínculo en order_addresses
-      const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
-                        VALUES ($1, $2, $3, $4) RETURNING id;`;
-      await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-      // 3. Insertar los items
-      for (const item of cartItems) {
-        if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
-          throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
-        }
-        const itemInsertQuery = `
-          INSERT INTO order_items (order_id, product_name, quantity, price)
-          VALUES ($1, $2, $3, $4) RETURNING id;
-        `;
-        const itemInsertValues = [orderId, item.name, item.quantity, parseFloat(item.price)];
-        await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
+    // Procesar pago con Mercado Pago
+    const payment_data = {
+      transaction_amount: monto,
+      token: mercadoPagoToken,
+      description: 'Pago GreenHaul',
+      installments: 1,
+      payer: {
+        email: email,
+        first_name: nombre
       }
-      await clientDbTransaction.query('COMMIT');
-      res.status(200).json({
-        message: 'Pago procesado y orden guardada correctamente.',
-        order_id: order.id,
-        order_folio: orderFolio,
-        conekta_order: order
-      });
-    } catch (err) {
-      if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
-      console.error("❌ Error al guardar orden después de pago:", err);
-      res.status(500).json({ message: `El pago fue exitoso pero hubo un error al guardar la orden: ${err.message}` });
-    } finally {
-      if (clientDbTransaction) clientDbTransaction.release();
+    };
+
+    const payment = await mercadopago.payment.create(payment_data);
+
+    if (payment.body.status === 'approved') {
+      // Si el pago fue exitoso, guardar la orden en BD
+      let clientDbTransaction;
+      try {
+        clientDbTransaction = await db.connect();
+        await clientDbTransaction.query('BEGIN');
+        const timestamp = Date.now();
+        const randomSuffix = Math.floor(Math.random() * 10000);
+        const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
+        // 1. Insertar en orders
+        const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
+        const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
+        const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
+        const orderId = orderResult.rows[0].id;
+        const orderFolio = orderResult.rows[0].order_folio;
+        // 2. Insertar vínculo en order_addresses
+        const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
+                          VALUES ($1, $2, $3, $4) RETURNING id;`;
+        await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
+        // 3. Insertar los items
+        for (const item of cartItems) {
+          if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
+            throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
+          }
+          const itemInsertQuery = `
+            INSERT INTO order_items (order_id, product_name, quantity, price)
+            VALUES ($1, $2, $3, $4) RETURNING id;
+          `;
+          const itemInsertValues = [orderId, item.name, item.quantity, parseFloat(item.price)];
+          await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
+        }
+        await clientDbTransaction.query('COMMIT');
+        res.status(200).json({
+          message: 'Pago procesado y orden guardada correctamente.',
+          order_id: orderId,
+          order_folio: orderFolio,
+          mercado_pago: payment.body
+        });
+      } catch (err) {
+        if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
+        console.error("❌ Error al guardar orden después de pago Mercado Pago:", err);
+        res.status(500).json({ message: `El pago fue exitoso pero hubo un error al guardar la orden: ${err.message}` });
+      } finally {
+        if (clientDbTransaction) clientDbTransaction.release();
+      }
+    } else {
+      res.status(400).json({ message: `El pago no fue aprobado: ${payment.body.status_detail}` });
     }
   } catch (error) {
     // Error en el pago
-    console.error('❌ Error al procesar pago Conekta:', error);
+    console.error('❌ Error al procesar pago Mercado Pago:', error);
     let msg = 'Error al procesar el pago.';
-    if (error.details && error.details[0] && error.details[0].message) {
-      msg = error.details[0].message;
-    }
+    if (error.message) msg = error.message;
     res.status(400).json({ message: msg, error });
   }
 });
