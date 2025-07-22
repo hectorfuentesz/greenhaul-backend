@@ -6,10 +6,10 @@ const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
-const nodemailer = require('nodemailer'); // Para correos corporativos
+const nodemailer = require('nodemailer');
 
 // --------- INTEGRACIÓN MERCADO PAGO ----------
-mercadopago.configurations.setAccessToken('APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464');
+mercadopago.access_token = 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464';
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
@@ -21,8 +21,6 @@ const transporter = nodemailer.createTransport({
     pass: 'TU_CONTRASEÑA_SMTP'
   }
 });
-
-// ----------------------------------------
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -317,8 +315,6 @@ app.delete('/api/addresses/:id', async (req, res) => {
 });
 
 // =============== NUEVA TABLA: order_addresses ===============
-
-// (Recomendado: ejecuta esta migración en Railway)
 // CREATE TABLE IF NOT EXISTS order_addresses (
 //   id SERIAL PRIMARY KEY,
 //   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -381,7 +377,6 @@ app.get('/api/users/:userId/orders', async (req, res) => {
 });
 
 // Crear una nueva orden (con vinculación en order_addresses)
-// Este endpoint solo crea la orden sin pago, pero ahora valida inventario
 app.post('/api/orders', async (req, res) => {
   const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id } = req.body; 
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
@@ -441,11 +436,9 @@ app.post('/api/orders', async (req, res) => {
 
 // =============== PAGO MERCADO PAGO ===============
 // Endpoint para recibir el token, procesar el pago y guardar la orden SOLO si el pago es exitoso
-// Incluye validación de inventario antes de procesar el pago
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
 
-  // Debug: log todos los datos recibidos
   console.log({
     mercadoPagoToken,
     monto,
@@ -457,7 +450,6 @@ app.post('/api/mercadopago', async (req, res) => {
     pickup_address_id
   });
 
-  // Validaciones campo por campo
   if (!mercadoPagoToken) return res.status(400).json({ message: 'Falta el token de pago de Mercado Pago.' });
   if (!monto) return res.status(400).json({ message: 'Falta el monto.' });
   if (!user_id) return res.status(400).json({ message: 'Falta el usuario.' });
@@ -468,7 +460,6 @@ app.post('/api/mercadopago', async (req, res) => {
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
-    // Validar inventario antes de procesar el pago
     for (const item of cartItems) {
       const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
       const stock = prodRes.rows[0]?.stock ?? 0;
@@ -476,8 +467,6 @@ app.post('/api/mercadopago', async (req, res) => {
         throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
       }
     }
-
-    // Procesar pago con Mercado Pago
     const payment_data = {
       transaction_amount: monto,
       token: mercadoPagoToken,
@@ -488,11 +477,8 @@ app.post('/api/mercadopago', async (req, res) => {
         first_name: nombre
       }
     };
-
     const payment = await mercadopago.payment.create(payment_data);
-
     if (payment.body.status === 'approved') {
-      // Si el pago fue exitoso, guardar la orden en BD y descontar inventario
       let clientDbTransaction;
       try {
         clientDbTransaction = await db.connect();
@@ -500,17 +486,14 @@ app.post('/api/mercadopago', async (req, res) => {
         const timestamp = Date.now();
         const randomSuffix = Math.floor(Math.random() * 10000);
         const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
-        // 1. Insertar en orders
         const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
         const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
         const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
         const orderId = orderResult.rows[0].id;
         const orderFolio = orderResult.rows[0].order_folio;
-        // 2. Insertar vínculo en order_addresses
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-        // 3. Insertar los items y descontar inventario
         for (const item of cartItems) {
           if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
             throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
@@ -524,7 +507,6 @@ app.post('/api/mercadopago', async (req, res) => {
           await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
         }
         await clientDbTransaction.query('COMMIT');
-        // Enviar correo de confirmación de orden
         try {
           await transporter.sendMail({
             from: '"GreenHaul" <notificaciones@greenhaul.com>',
@@ -556,7 +538,6 @@ app.post('/api/mercadopago', async (req, res) => {
       res.status(400).json({ message: `El pago no fue aprobado: ${payment.body.status_detail}` });
     }
   } catch (error) {
-    // Error en el pago
     console.error('❌ Error al procesar pago Mercado Pago:', error);
     let msg = 'Error al procesar el pago.';
     if (error.message) msg = error.message;
@@ -575,7 +556,6 @@ app.post('/api/contact', async (req, res) => {
       'INSERT INTO contact_messages (full_name, email, message) VALUES ($1, $2, $3)',
       [full_name, email, message]
     );
-    // Enviar correo de confirmación de contacto
     try {
       await transporter.sendMail({
         from: '"GreenHaul" <notificaciones@greenhaul.com>',
