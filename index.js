@@ -1,17 +1,15 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago, inventario y envíos de correo corporativo)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
-const Mercadopago = require('mercadopago');
+const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer'); // Para correos corporativos
 
 // --------- INTEGRACIÓN MERCADO PAGO ----------
-const mercadopago = new Mercadopago({
-  access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
-});
+mercadopago.configurations.setAccessToken('APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464');
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
