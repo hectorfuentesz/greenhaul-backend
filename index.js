@@ -1,5 +1,6 @@
-// Archivo: index.js (GreenHaul backend completo con integración de pagos Conekta)
+// Archivo: index.js (GreenHaul backend completo con integración de pagos Conekta - CORREGIDO)
 
+// --- Dependencias ---
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
@@ -438,8 +439,8 @@ app.post('/api/pagos', async (req, res) => {
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
-    // Procesar pago con Conekta
-    const order = await conekta.Order.create({
+    // Procesar pago con Conekta (corregido: conekta.orders.create en vez de conekta.Order.create)
+    const order = await conekta.orders.create({
       currency: 'MXN',
       customer_info: {
         name: nombre,
