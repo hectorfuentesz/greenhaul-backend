@@ -1,16 +1,29 @@
-// Archivo: index.js (GreenHaul backend completo con integración de pagos Mercado Pago)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago, inventario y envíos de correo corporativo)
 
 // --- Dependencias ---
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
+const Mercadopago = require('mercadopago');
+const nodemailer = require('nodemailer'); // Para correos corporativos
 
 // --------- INTEGRACIÓN MERCADO PAGO ----------
-const mercadopago = require('mercadopago');
-mercadopago.configure({
+const mercadopago = new Mercadopago({
   access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
 });
+
+// --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
+const transporter = nodemailer.createTransport({
+  host: 'smtp.greenhaul.com', // Cambia por tu host SMTP real
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'notificaciones@greenhaul.com',
+    pass: 'TU_CONTRASEÑA_SMTP'
+  }
+});
+
 // ----------------------------------------
 
 const app = express();
@@ -35,6 +48,17 @@ app.post('/api/register', async (req, res) => {
     const sql = 'INSERT INTO users (name, surname, email, password, whatsapp) VALUES ($1, $2, $3, $4, $5) RETURNING id';
     const values = [name, surname, email, hashedPassword, whatsapp];
     const result = await db.query(sql, values);
+    // Enviar correo de bienvenida
+    try {
+      await transporter.sendMail({
+        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+        to: email,
+        subject: '¡Bienvenido a GreenHaul!',
+        html: `<h2>¡Bienvenido, ${name}!</h2><p>Tu cuenta ha sido creada correctamente. Ahora puedes comenzar a rentar y comprar con nosotros.</p>`
+      });
+    } catch (mailErr) {
+      console.warn('No se pudo enviar correo de bienvenida:', mailErr);
+    }
     res.status(201).json({ message: 'Usuario registrado con éxito.', userId: result.rows[0].id });
   } catch (err) {
     if (err.code === '23505') {
@@ -359,6 +383,7 @@ app.get('/api/users/:userId/orders', async (req, res) => {
 });
 
 // Crear una nueva orden (con vinculación en order_addresses)
+// Este endpoint solo crea la orden sin pago, pero ahora valida inventario
 app.post('/api/orders', async (req, res) => {
   const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id } = req.body; 
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
@@ -371,6 +396,14 @@ app.post('/api/orders', async (req, res) => {
   try {
     clientDbTransaction = await db.connect();
     await clientDbTransaction.query('BEGIN');
+    // Validar inventario antes de crear la orden
+    for (const item of cartItems) {
+      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
+      const stock = prodRes.rows[0]?.stock ?? 0;
+      if (stock < item.quantity) {
+        throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
+      }
+    }
     const timestamp = Date.now();
     const randomSuffix = Math.floor(Math.random() * 10000);
     const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
@@ -384,11 +417,12 @@ app.post('/api/orders', async (req, res) => {
     const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                      VALUES ($1, $2, $3, $4) RETURNING id;`;
     await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-    // 3. Insertar los items
+    // 3. Insertar los items y descontar inventario
     for (const item of cartItems) {
       if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
         throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
       }
+      await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.id]);
       const itemInsertQuery = `
         INSERT INTO order_items (order_id, product_name, quantity, price)
         VALUES ($1, $2, $3, $4) RETURNING id;
@@ -401,11 +435,7 @@ app.post('/api/orders', async (req, res) => {
   } catch (err) {
     if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
     console.error("❌ Error POST /api/orders:", err);
-    if (err.code === '23505' && err.detail && err.detail.includes('order_folio')) {
-        res.status(500).json({ message: `Error al crear la orden: El número de folio generado ya existe. Por favor, intenta de nuevo.` });
-    } else {
-        res.status(500).json({ message: `Error al crear la orden: ${err.message || 'Error interno del servidor.'}` });
-    }
+    res.status(500).json({ message: `Error al crear la orden: ${err.message || 'Error interno del servidor.'}` });
   } finally {
     if (clientDbTransaction) clientDbTransaction.release();
   }
@@ -413,7 +443,7 @@ app.post('/api/orders', async (req, res) => {
 
 // =============== PAGO MERCADO PAGO ===============
 // Endpoint para recibir el token, procesar el pago y guardar la orden SOLO si el pago es exitoso
-
+// Incluye validación de inventario antes de procesar el pago
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
 
@@ -440,6 +470,15 @@ app.post('/api/mercadopago', async (req, res) => {
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
+    // Validar inventario antes de procesar el pago
+    for (const item of cartItems) {
+      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
+      const stock = prodRes.rows[0]?.stock ?? 0;
+      if (stock < item.quantity) {
+        throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
+      }
+    }
+
     // Procesar pago con Mercado Pago
     const payment_data = {
       transaction_amount: monto,
@@ -455,7 +494,7 @@ app.post('/api/mercadopago', async (req, res) => {
     const payment = await mercadopago.payment.create(payment_data);
 
     if (payment.body.status === 'approved') {
-      // Si el pago fue exitoso, guardar la orden en BD
+      // Si el pago fue exitoso, guardar la orden en BD y descontar inventario
       let clientDbTransaction;
       try {
         clientDbTransaction = await db.connect();
@@ -473,11 +512,12 @@ app.post('/api/mercadopago', async (req, res) => {
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-        // 3. Insertar los items
+        // 3. Insertar los items y descontar inventario
         for (const item of cartItems) {
           if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
             throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
           }
+          await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.id]);
           const itemInsertQuery = `
             INSERT INTO order_items (order_id, product_name, quantity, price)
             VALUES ($1, $2, $3, $4) RETURNING id;
@@ -486,6 +526,21 @@ app.post('/api/mercadopago', async (req, res) => {
           await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
         }
         await clientDbTransaction.query('COMMIT');
+        // Enviar correo de confirmación de orden
+        try {
+          await transporter.sendMail({
+            from: '"GreenHaul" <notificaciones@greenhaul.com>',
+            to: email,
+            subject: '¡Tu pedido en GreenHaul fue procesado!',
+            html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
+            <p>Tu pedido ha sido recibido y confirmado.<br>
+            <b>Folio de orden:</b> ${orderFolio}<br>
+            <b>Total pagado:</b> $${monto.toFixed(2)}</p>
+            <p>Un asesor se contactará contigo para el seguimiento.</p>`
+          });
+        } catch (mailErr) {
+          console.warn('No se pudo enviar correo de confirmación de orden:', mailErr);
+        }
         res.status(200).json({
           message: 'Pago procesado y orden guardada correctamente.',
           order_id: orderId,
@@ -522,6 +577,18 @@ app.post('/api/contact', async (req, res) => {
       'INSERT INTO contact_messages (full_name, email, message) VALUES ($1, $2, $3)',
       [full_name, email, message]
     );
+    // Enviar correo de confirmación de contacto
+    try {
+      await transporter.sendMail({
+        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+        to: email,
+        subject: '¡Gracias por contactar a GreenHaul!',
+        html: `<h2>¡Hola, ${full_name}!</h2>
+        <p>Recibimos tu mensaje. Pronto te contactaremos.</p>`
+      });
+    } catch (mailErr) {
+      console.warn('No se pudo enviar correo de contacto:', mailErr);
+    }
     res.status(201).json({ message: '¡Mensaje enviado correctamente! Pronto te contactaremos.' });
   } catch (err) {
     console.error('❌ Error al guardar mensaje de contacto:', err);
