@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend completo con integración de pagos Conekta - CORRECTO SDK 6.x)
+// Archivo: index.js (GreenHaul backend completo con integración de pagos Conekta - CORRECTO)
 
 // --- Dependencias ---
 const express = require('express');
@@ -6,9 +6,10 @@ const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 
-// --------- INTEGRACIÓN CONEKTA (SDK v6.x CORRECTO) ----------
-const { Conekta } = require('conekta');
-const conekta = new Conekta({ apiKey: 'key_4NE2J8Zxav6tG8SCMXyA0Kb', locale: 'es' });
+// --------- INTEGRACIÓN CONEKTA ----------
+const conekta = require('conekta');
+conekta.api_key = 'key_4NE2J8Zxav6tG8SCMXyA0Kb';
+conekta.locale = 'es';
 // ----------------------------------------
 
 const app = express();
