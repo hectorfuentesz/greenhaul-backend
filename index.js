@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x NPM, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v1.5.0, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
@@ -8,15 +8,14 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO CORRECTA PARA NPM v2.x en Node.js ----------
-mercadopago.access_token = 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464';
+// --------- INTEGRACIÓN MERCADO PAGO CORRECTA PARA NPM v1.5.0 en Node.js ----------
+mercadopago.configurations.setAccessToken('APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464');
 
 // --- DEBUG: Imprime métodos y objetos disponibles de la SDK de MercadoPago ---
 console.log('mercadopago keys:', Object.keys(mercadopago));
 console.log('mercadopago.payment:', mercadopago.payment);
 if (mercadopago.payment) {
-  console.log('payment.create:', typeof mercadopago.payment.create);
-  console.log('payment.save:', typeof mercadopago.payment.save);
+  console.log('payment.save:', typeof mercadopago?.payment?.save);
 }
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
@@ -486,10 +485,13 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     };
 
-    // CORRECTO: usa Payment.create
+    // CORRECTO: usa payment.save para v1.5.0
+    console.log('mercadopago.payment:', mercadopago.payment);
+    console.log('mercadopago.payment.save:', typeof mercadopago?.payment?.save);
+
     const payment = await mercadopago.payment.save(payment_data);
 
-    if (payment.body.status === 'approved') {
+    if (payment.status === 'approved') {
       let clientDbTransaction;
       try {
         clientDbTransaction = await db.connect();
@@ -536,7 +538,7 @@ app.post('/api/mercadopago', async (req, res) => {
           message: 'Pago procesado y orden guardada correctamente.',
           order_id: orderId,
           order_folio: orderFolio,
-          mercado_pago: payment.body
+          mercado_pago: payment
         });
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
@@ -546,7 +548,7 @@ app.post('/api/mercadopago', async (req, res) => {
         if (clientDbTransaction) clientDbTransaction.release();
       }
     } else {
-      res.status(400).json({ message: `El pago no fue aprobado: ${payment.body.status_detail}` });
+      res.status(400).json({ message: `El pago no fue aprobado: ${payment.status_detail}` });
     }
   } catch (error) {
     console.error('❌ Error al procesar pago Mercado Pago:', error);
