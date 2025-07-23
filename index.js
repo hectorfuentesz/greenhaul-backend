@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x/v3.x, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.8.0, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
@@ -8,7 +8,12 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO (v2.x/v3.x) ----------
+// --------- INTEGRACIÓN MERCADO PAGO (v2.8.0) ----------
+console.log('mercadopago version: 2.8.0');
+console.log('mercadopago.configure:', typeof mercadopago.configure); // Debe ser 'function'
+console.log('mercadopago.payment:', typeof mercadopago.payment); // Debe ser 'object'
+console.log('mercadopago.payment.create:', typeof mercadopago.payment?.create); // Debe ser 'function'
+
 mercadopago.configure({
   access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
 });
