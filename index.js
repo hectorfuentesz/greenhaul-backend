@@ -479,7 +479,7 @@ app.post('/api/mercadopago', async (req, res) => {
     };
 
     // Ejecuta el pago
-    const payment = await mercadopago.payment.create(payment_data);
+    const payment = await mercadopago.payment.save(payment_data);
 
     if (payment.body.status === 'approved') {
       let clientDbTransaction;
