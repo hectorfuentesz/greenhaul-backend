@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x/v3.x, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
@@ -8,8 +8,10 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO ----------
-mercadopago.access_token = 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464';
+// --------- INTEGRACIÓN MERCADO PAGO (CORREGIDO) ----------
+mercadopago.configure({
+  access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
+});
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
@@ -477,7 +479,15 @@ app.post('/api/mercadopago', async (req, res) => {
         first_name: nombre
       }
     };
+
+    // --- CORRECCIÓN: Verifica que el método existe y lanza error amigable si no ---
+    if (!mercadopago.payment || typeof mercadopago.payment.create !== 'function') {
+      console.error('❌ Error: El método mercadopago.payment.create no existe. Verifica la versión e instalación de la SDK Mercado Pago.');
+      return res.status(500).json({ message: 'Error interno: Mercado Pago no está correctamente inicializado. Contacta al administrador.' });
+    }
+
     const payment = await mercadopago.payment.create(payment_data);
+
     if (payment.body.status === 'approved') {
       let clientDbTransaction;
       try {
