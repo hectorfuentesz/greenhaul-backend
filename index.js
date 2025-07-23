@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.8.0, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend con integración Mercado Pago v2.x NPM, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
@@ -8,8 +8,16 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO CORRECTA PARA v2.x/v1.x en Node.js ----------
+// --------- INTEGRACIÓN MERCADO PAGO CORRECTA PARA NPM v2.x en Node.js ----------
 mercadopago.access_token = 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464';
+
+// --- DEBUG: Imprime métodos y objetos disponibles de la SDK de MercadoPago ---
+console.log('mercadopago keys:', Object.keys(mercadopago));
+console.log('mercadopago.payment:', mercadopago.payment);
+if (mercadopago.payment) {
+  console.log('payment.create:', typeof mercadopago.payment.create);
+  console.log('payment.save:', typeof mercadopago.payment.save);
+}
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
@@ -478,8 +486,16 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     };
 
-    // Ejecuta el pago
-    const payment = await mercadopago.createPayment(payment_data);
+    // Aquí es donde el método puede variar según el SDK
+    // Intenta ambos métodos, y si ambos fallan, loguea error
+    let payment;
+    if (mercadopago.payment && typeof mercadopago.payment.create === 'function') {
+      payment = await mercadopago.payment.create(payment_data);
+    } else if (mercadopago.payment && typeof mercadopago.payment.save === 'function') {
+      payment = await mercadopago.payment.save(payment_data);
+    } else {
+      throw new Error('No se encontró método válido para procesar pagos en la SDK de MercadoPago.');
+    }
 
     if (payment.body.status === 'approved') {
       let clientDbTransaction;
