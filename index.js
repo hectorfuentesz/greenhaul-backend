@@ -492,10 +492,8 @@ app.post('/api/mercadopago', async (req, res) => {
     console.log('mercadopago.payment.save:', typeof mercadopago?.payment?.save);
 
     const payment = await mercadopago.payment.save(payment_data);
-    // <<<<<<< CORRECCIÓN AQUÍ >>>>>>>
-    const paymentData = payment.response || payment.body || payment;
 
-    if (paymentData.status === 'approved') {
+    if (payment.status === 'approved') {
       let clientDbTransaction;
       try {
         clientDbTransaction = await db.connect();
@@ -542,7 +540,7 @@ app.post('/api/mercadopago', async (req, res) => {
           message: 'Pago procesado y orden guardada correctamente.',
           order_id: orderId,
           order_folio: orderFolio,
-          mercado_pago: paymentData
+          mercado_pago: payment
         });
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
@@ -553,10 +551,10 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     } else {
       res.status(400).json({
-        message: `El pago no fue aprobado: ${paymentData.status_detail || paymentData.status || 'Sin detalle'}`,
-        status: paymentData.status,
-        status_detail: paymentData.status_detail,
-        mercado_pago: paymentData
+        message: `El pago no fue aprobado: ${payment.status_detail || payment.status || 'Sin detalle'}`,
+        status: payment.status,
+        status_detail: payment.status_detail,
+        mercado_pago: payment
       });
     }
   } catch (error) {
