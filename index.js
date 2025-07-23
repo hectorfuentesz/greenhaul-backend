@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v1.5.0, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend robusto con integración MercadoPago v1.5.0 en modo SANDBOX)
 
 // --- Dependencias ---
 const express = require('express');
@@ -8,8 +8,10 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO CORRECTA PARA NPM v1.5.0 en Node.js ----------
-mercadopago.configurations.setAccessToken('APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464');
+// --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
+mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
+
+// (En SANDBOX, puedes usar tarjetas de prueba y public_key de prueba: TEST-9fc6389c-411c-4e70-b4e0-5f0d058c795b)
 
 // --- DEBUG: Imprime métodos y objetos disponibles de la SDK de MercadoPago ---
 console.log('mercadopago keys:', Object.keys(mercadopago));
@@ -37,7 +39,7 @@ app.use(express.json());
 
 // --- Ruta Raíz ---
 app.get('/', (req, res) => {
-  res.send('✅ Backend GreenHaul funcionando correctamente 🚛');
+  res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
 });
 
 // --- REGISTRO DE USUARIO ---
@@ -548,7 +550,10 @@ app.post('/api/mercadopago', async (req, res) => {
         if (clientDbTransaction) clientDbTransaction.release();
       }
     } else {
-      res.status(400).json({ message: `El pago no fue aprobado: ${payment.status_detail}` });
+      res.status(400).json({
+        message: `El pago no fue aprobado: ${payment.status_detail || payment.status || 'Sin detalle'}`,
+        mercado_pago: payment
+      });
     }
   } catch (error) {
     console.error('❌ Error al procesar pago Mercado Pago:', error);
@@ -591,7 +596,7 @@ app.post('/api/contact', async (req, res) => {
 async function startServer() {
   await connectAndSetupDatabase();
   app.listen(PORT, () => {
-    console.log(`🚀 Servidor escuchando en el puerto ${PORT}`);
+    console.log(`🚀 Servidor escuchando en el puerto ${PORT} (SANDBOX)`);
     console.log(`🌐 Accede a: http://localhost:${PORT}`);
     console.log(`📅 Fecha y hora del servidor: ${new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })} (CST)`);
   });
