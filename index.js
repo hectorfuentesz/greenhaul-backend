@@ -487,7 +487,7 @@ app.post('/api/mercadopago', async (req, res) => {
     };
 
     // CORRECTO: usa Payment.create
-    const payment = await mercadopago.Payment.create(payment_data);
+    const payment = await mercadopago.payment.save(payment_data);
 
     if (payment.body.status === 'approved') {
       let clientDbTransaction;
