@@ -1,6 +1,7 @@
 // Archivo: index.js (GreenHaul backend robusto con integración MercadoPago v1.5.0 en modo SANDBOX)
+// Versión optimizada para procesar el pago con MercadoPago PRIMERO antes de guardar la orden y enviar correo.
+// El correo se envía DESPUÉS de responder al cliente (flujo más rápido y fluido).
 
-// --- Dependencias ---
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
@@ -10,15 +11,6 @@ const nodemailer = require('nodemailer');
 
 // --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
-
-// (En SANDBOX, puedes usar tarjetas de prueba y public_key de prueba: TEST-9fc6389c-411c-4e70-b4e0-5f0d058c795b)
-
-// --- DEBUG: Imprime métodos y objetos disponibles de la SDK de MercadoPago ---
-console.log('mercadopago keys:', Object.keys(mercadopago));
-console.log('mercadopago.payment:', mercadopago.payment);
-if (mercadopago.payment) {
-  console.log('payment.save:', typeof mercadopago?.payment?.save);
-}
 
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
@@ -443,12 +435,12 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// =============== PAGO MERCADO PAGO ===============
-// Endpoint para recibir el token, procesar el pago y guardar la orden SOLO si el pago es exitoso
+// =============== PAGO MERCADO PAGO OPTIMIZADO ===============
+// Procesa el pago con MercadoPago PRIMERO, luego guarda la orden y responde al usuario.
+// El correo se envía después de responder (no ralentiza la respuesta).
+
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
-
-  // Asegura que el token sea string (no objeto)
   const token = typeof mercadoPagoToken === 'string' ? mercadoPagoToken : (mercadoPagoToken?.token || '');
 
   if (!token) return res.status(400).json({ message: 'Falta el token de pago de Mercado Pago.' });
@@ -461,13 +453,7 @@ app.post('/api/mercadopago', async (req, res) => {
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
 
   try {
-    for (const item of cartItems) {
-      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
-      const stock = prodRes.rows[0]?.stock ?? 0;
-      if (stock < item.quantity) {
-        throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
-      }
-    }
+    // 1. Procesa el pago con MercadoPago PRIMERO
     const payment_data = {
       transaction_amount: Number(monto),
       token: token,
@@ -478,34 +464,37 @@ app.post('/api/mercadopago', async (req, res) => {
         first_name: nombre
       }
     };
-
-    // CORRECTO: usa payment.save para v1.5.0
     console.log('payment_data:', payment_data);
-
     const payment = await mercadopago.payment.save(payment_data);
-    // <<<<<<< CORRECCIÓN AQUÍ >>>>>>>
     const paymentData = payment.response || payment.body || payment;
 
     if (paymentData.status === 'approved') {
+      // 2. Guarda la orden, vincula direcciones, descuenta inventario
       let clientDbTransaction;
+      let orderId, orderFolio;
       try {
         clientDbTransaction = await db.connect();
         await clientDbTransaction.query('BEGIN');
+        // Validación mínima de inventario (puedes hacerla después si tienes lógica de reversa)
+        for (const item of cartItems) {
+          const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
+          const stock = prodRes.rows[0]?.stock ?? 0;
+          if (stock < item.quantity) {
+            throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
+          }
+        }
         const timestamp = Date.now();
         const randomSuffix = Math.floor(Math.random() * 10000);
         const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
         const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
         const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
         const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
-        const orderId = orderResult.rows[0].id;
-        const orderFolio = orderResult.rows[0].order_folio;
+        orderId = orderResult.rows[0].id;
+        orderFolio = orderResult.rows[0].order_folio;
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
         for (const item of cartItems) {
-          if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
-            throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
-          }
           await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.id]);
           const itemInsertQuery = `
             INSERT INTO order_items (order_id, product_name, quantity, price)
@@ -515,33 +504,37 @@ app.post('/api/mercadopago', async (req, res) => {
           await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
         }
         await clientDbTransaction.query('COMMIT');
-        try {
-          await transporter.sendMail({
-            from: '"GreenHaul" <notificaciones@greenhaul.com>',
-            to: email,
-            subject: '¡Tu pedido en GreenHaul fue procesado!',
-            html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
-            <p>Tu pedido ha sido recibido y confirmado.<br>
-            <b>Folio de orden:</b> ${orderFolio}<br>
-            <b>Total pagado:</b> $${monto.toFixed(2)}</p>
-            <p>Un asesor se contactará contigo para el seguimiento.</p>`
-          });
-        } catch (mailErr) {
-          console.warn('No se pudo enviar correo de confirmación de orden:', mailErr);
-        }
-        res.status(200).json({
-          message: 'Pago procesado y orden guardada correctamente.',
-          order_id: orderId,
-          order_folio: orderFolio,
-          mercado_pago: paymentData
-        });
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
         console.error("❌ Error al guardar orden después de pago Mercado Pago:", err);
-        res.status(500).json({ message: `El pago fue exitoso pero hubo un error al guardar la orden: ${err.message}` });
+        // Aquí podrías intentar revertir/cancelar el pago con MercadoPago en caso de error grave
+        return res.status(500).json({ message: `El pago fue exitoso pero hubo un error al guardar la orden: ${err.message}` });
       } finally {
         if (clientDbTransaction) clientDbTransaction.release();
       }
+
+      // 3. RESPONDE rápido al usuario
+      res.status(200).json({
+        message: 'Pago procesado y orden guardada correctamente.',
+        order_id: orderId,
+        order_folio: orderFolio,
+        mercado_pago: paymentData
+      });
+
+      // 4. ENVÍA el correo de confirmación en segundo plano (no bloquea la respuesta)
+      transporter.sendMail({
+        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+        to: email,
+        subject: '¡Tu pedido en GreenHaul fue procesado!',
+        html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
+        <p>Tu pedido ha sido recibido y confirmado.<br>
+        <b>Folio de orden:</b> ${orderFolio}<br>
+        <b>Total pagado:</b> $${monto.toFixed(2)}</p>
+        <p>Un asesor se contactará contigo para el seguimiento.</p>`
+      }).catch(mailErr => {
+        console.warn('No se pudo enviar correo de confirmación de orden:', mailErr);
+      });
+
     } else {
       res.status(400).json({
         message: `El pago no fue aprobado: ${paymentData.status_detail || paymentData.status || 'Sin detalle'}`,
