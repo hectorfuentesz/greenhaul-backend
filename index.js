@@ -448,18 +448,10 @@ app.post('/api/orders', async (req, res) => {
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
 
-  console.log({
-    mercadoPagoToken,
-    monto,
-    user_id,
-    email,
-    nombre,
-    cartItems,
-    delivery_address_id,
-    pickup_address_id
-  });
+  // Asegura que el token sea string (no objeto)
+  const token = typeof mercadoPagoToken === 'string' ? mercadoPagoToken : (mercadoPagoToken?.token || '');
 
-  if (!mercadoPagoToken) return res.status(400).json({ message: 'Falta el token de pago de Mercado Pago.' });
+  if (!token) return res.status(400).json({ message: 'Falta el token de pago de Mercado Pago.' });
   if (!monto) return res.status(400).json({ message: 'Falta el monto.' });
   if (!user_id) return res.status(400).json({ message: 'Falta el usuario.' });
   if (!email) return res.status(400).json({ message: 'Falta el email.' });
@@ -477,8 +469,8 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     }
     const payment_data = {
-      transaction_amount: monto,
-      token: mercadoPagoToken,
+      transaction_amount: Number(monto),
+      token: token,
       description: 'Pago GreenHaul',
       installments: 1,
       payer: {
@@ -488,8 +480,7 @@ app.post('/api/mercadopago', async (req, res) => {
     };
 
     // CORRECTO: usa payment.save para v1.5.0
-    console.log('mercadopago.payment:', mercadopago.payment);
-    console.log('mercadopago.payment.save:', typeof mercadopago?.payment?.save);
+    console.log('payment_data:', payment_data);
 
     const payment = await mercadopago.payment.save(payment_data);
     // <<<<<<< CORRECCIÓN AQUÍ >>>>>>>
