@@ -3,8 +3,9 @@
 const { Pool } = require('pg');
 
 // Configuración de la Pool de conexiones a PostgreSQL.
+// Usa la URL pública de Railway proporcionada:
 const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL,
+  connectionString: 'postgresql://postgres:ITYRPvLotXzkvsAUUjEhlExxKxYPrMtN@ballast.proxy.rlwy.net:32833/railway',
   ssl: {
     rejectUnauthorized: false
   }
