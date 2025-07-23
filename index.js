@@ -152,8 +152,9 @@ app.put('/api/users/:id', async (req, res) => {
 app.get('/api/users/:userId/dashboard', async (req, res) => {
   const { userId } = req.params;
   try {
+    // Cambiado para contar pedidos con status 'activo' y 'pagado'
     const activeOrdersResult = await db.query(
-      "SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status = 'activo'", [userId]
+      "SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status IN ('activo', 'pagado')", [userId]
     );
     const pedidos_activos = parseInt(activeOrdersResult.rows[0].count) || 0;
     const completedOrdersResult = await db.query(
@@ -487,6 +488,7 @@ app.post('/api/mercadopago', async (req, res) => {
         const randomSuffix = Math.floor(Math.random() * 10000);
         const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
         const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
+        // Aquí el status es 'pagado'
         const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
         const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
         orderId = orderResult.rows[0].id;
