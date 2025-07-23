@@ -1,4 +1,4 @@
-// Archivo: index.js (GreenHaul backend con integración Mercado Pago v2.x NPM, inventario y correos corporativos)
+// Archivo: index.js (GreenHaul backend robusto con integración Mercado Pago v2.x NPM, inventario y correos corporativos)
 
 // --- Dependencias ---
 const express = require('express');
@@ -486,16 +486,8 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     };
 
-    // Aquí es donde el método puede variar según el SDK
-    // Intenta ambos métodos, y si ambos fallan, loguea error
-    let payment;
-    if (mercadopago.payment && typeof mercadopago.payment.create === 'function') {
-      payment = await mercadopago.payment.create(payment_data);
-    } else if (mercadopago.payment && typeof mercadopago.payment.save === 'function') {
-      payment = await mercadopago.payment.save(payment_data);
-    } else {
-      throw new Error('No se encontró método válido para procesar pagos en la SDK de MercadoPago.');
-    }
+    // CORRECTO: usa Payment.create
+    const payment = await mercadopago.Payment.create(payment_data);
 
     if (payment.body.status === 'approved') {
       let clientDbTransaction;
