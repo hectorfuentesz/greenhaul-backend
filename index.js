@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
 
-// --------- INTEGRACIÓN MERCADO PAGO (CORREGIDO) ----------
+// --------- INTEGRACIÓN MERCADO PAGO (v2.x/v3.x) ----------
 mercadopago.configure({
   access_token: 'APP_USR-3573758142529800-072110-0c1e16835004f530dcbf57bc0dbca8fe-692524464'
 });
@@ -480,12 +480,13 @@ app.post('/api/mercadopago', async (req, res) => {
       }
     };
 
-    // --- CORRECCIÓN: Verifica que el método existe y lanza error amigable si no ---
+    // Verifica que el método existe y lanza error amigable si no
     if (!mercadopago.payment || typeof mercadopago.payment.create !== 'function') {
       console.error('❌ Error: El método mercadopago.payment.create no existe. Verifica la versión e instalación de la SDK Mercado Pago.');
       return res.status(500).json({ message: 'Error interno: Mercado Pago no está correctamente inicializado. Contacta al administrador.' });
     }
 
+    // Ejecuta el pago
     const payment = await mercadopago.payment.create(payment_data);
 
     if (payment.body.status === 'approved') {
