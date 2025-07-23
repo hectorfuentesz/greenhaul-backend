@@ -552,6 +552,8 @@ app.post('/api/mercadopago', async (req, res) => {
     } else {
       res.status(400).json({
         message: `El pago no fue aprobado: ${payment.status_detail || payment.status || 'Sin detalle'}`,
+        status: payment.status,
+        status_detail: payment.status_detail,
         mercado_pago: payment
       });
     }
