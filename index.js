@@ -32,14 +32,16 @@ app.get('/', (req, res) => {
 app.post('/api/recover-password', async (req, res) => {
   console.log('=> POST /api/recover-password llamado');
   console.log('Body recibido:', req.body);
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ message: 'El correo es obligatorio.' });
+
+  const { email, phone } = req.body;
+  if (!email || !phone) {
+    return res.status(400).json({ message: 'Correo y teléfono son obligatorios.' });
   }
   try {
-    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    // Busca el usuario por correo y teléfono (whatsapp)
+    const result = await db.query('SELECT * FROM users WHERE email = $1 AND whatsapp = $2', [email, phone]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'No existe ninguna cuenta con ese correo.' });
+      return res.status(404).json({ message: 'No existe ninguna cuenta con ese correo y teléfono.' });
     }
 
     const user = result.rows[0];
