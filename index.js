@@ -4,13 +4,14 @@
 // AHORA usando RESEND para todos los correos (sin nodemailer).
 
 require('dotenv').config();
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const crypto = require('crypto');
-const { Resend } = require('resend');
 
 // --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
