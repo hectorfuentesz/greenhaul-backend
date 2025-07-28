@@ -57,6 +57,8 @@ app.get('/', (req, res) => {
 
 // --- Recuperación de contraseña ---
 app.post('/api/recover-password', async (req, res) => {
+  console.log('=> POST /api/recover-password llamado');
+  console.log('Body recibido:', req.body);
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ message: 'El correo es obligatorio.' });
