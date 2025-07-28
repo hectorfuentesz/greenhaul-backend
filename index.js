@@ -182,6 +182,40 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
+// --- Cambiar contraseña desde el perfil/seguridad ---
+app.put('/api/users/:id/change-password', async (req, res) => {
+  const { id } = req.params;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Debes proporcionar la contraseña actual y la nueva contraseña.' });
+  }
+
+  try {
+    // Obtener el hash actual de la contraseña del usuario
+    const result = await db.query('SELECT password FROM users WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+    const user = result.rows[0];
+
+    // Validar la contraseña actual (puede ser la temporal)
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ message: 'La contraseña actual es incorrecta.' });
+    }
+
+    // Hashear la nueva contraseña y actualizarla en la base de datos
+    const newHashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = $1 WHERE id = $2', [newHashedPassword, id]);
+
+    res.status(200).json({ message: 'Contraseña actualizada exitosamente.' });
+  } catch (err) {
+    console.error('❌ Error en PUT /api/users/:id/change-password:', err);
+    res.status(500).json({ message: 'Error al cambiar la contraseña.' });
+  }
+});
+
 // --- DASHBOARD DEL USUARIO ---
 app.get('/api/users/:userId/dashboard', async (req, res) => {
   const { userId } = req.params;
