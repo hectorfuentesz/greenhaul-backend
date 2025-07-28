@@ -17,8 +17,6 @@ const crypto = require('crypto');
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
 
 // --------- INICIALIZA RESEND ----------
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
