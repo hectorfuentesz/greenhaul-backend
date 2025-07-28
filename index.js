@@ -1,6 +1,7 @@
 // Archivo: index.js (GreenHaul backend robusto con integración MercadoPago v1.5.0 en modo SANDBOX)
 // Versión optimizada para procesar el pago con MercadoPago PRIMERO antes de guardar la orden y enviar correo.
 // El correo se envía DESPUÉS de responder al cliente (flujo más rápido y fluido).
+// AHORA usando RESEND para todos los correos (sin nodemailer).
 
 require('dotenv').config();
 const express = require('express');
@@ -8,42 +9,14 @@ const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto'); // CORRECCIÓN: Importar crypto
+const crypto = require('crypto');
+const { Resend } = require('resend');
 
 // --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
 
-// --------- TRANSPORTERS DE CORREO ----------
-const transporterNotificaciones = nodemailer.createTransport({
-  host: 'smtp.greenhaul.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'notificaciones@greenhaul.com',
-    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
-  }
-});
-
-const transporterAuth = nodemailer.createTransport({
-  host: 'smtp.greenhaul.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'auth@greenhaul.com.mx',
-    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
-  }
-});
-
-const transporter = nodemailer.createTransport({
-  host: 'smtp.greenhaul.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'notificaciones@greenhaul.com',
-    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
-  }
-});
+// --------- INICIALIZA RESEND ----------
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -76,7 +49,7 @@ app.post('/api/recover-password', async (req, res) => {
 
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
 
-    await transporterAuth.sendMail({
+    await resend.emails.send({
       from: 'auth@greenhaul.com.mx',
       to: email,
       subject: 'Recuperación de Contraseña - GreenHaul',
@@ -109,8 +82,8 @@ app.post('/api/register', async (req, res) => {
     const result = await db.query(sql, values);
     // Enviar correo de bienvenida
     try {
-      await transporter.sendMail({
-        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+      await resend.emails.send({
+        from: 'notificaciones@greenhaul.com',
         to: email,
         subject: '¡Bienvenido a GreenHaul!',
         html: `<h2>¡Bienvenido, ${name}!</h2><p>Tu cuenta ha sido creada correctamente. Ahora puedes comenzar a rentar y comprar con nosotros.</p>`
@@ -586,8 +559,8 @@ app.post('/api/mercadopago', async (req, res) => {
       });
 
       // 4. ENVÍA el correo de confirmación en segundo plano (no bloquea la respuesta)
-      transporter.sendMail({
-        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+      resend.emails.send({
+        from: 'notificaciones@greenhaul.com',
         to: email,
         subject: '¡Tu pedido en GreenHaul fue procesado!',
         html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
@@ -627,8 +600,8 @@ app.post('/api/contact', async (req, res) => {
       [full_name, email, message]
     );
     try {
-      await transporter.sendMail({
-        from: '"GreenHaul" <notificaciones@greenhaul.com>',
+      await resend.emails.send({
+        from: 'notificaciones@greenhaul.com',
         to: email,
         subject: '¡Gracias por contactar a GreenHaul!',
         html: `<h2>¡Hola, ${full_name}!</h2>
