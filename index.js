@@ -12,6 +12,76 @@ const nodemailer = require('nodemailer');
 // --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
 
+// --------- TRANSPORTERS DE CORREO ----------
+const transporterNotificaciones = nodemailer.createTransport({
+  host: 'smtp.greenhaul.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'notificaciones@greenhaul.com',
+    pass: 'TU_CONTRASEÑA_SMTP'
+  }
+});
+
+const transporterAuth = nodemailer.createTransport({
+  host: 'smtp.greenhaul.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'auth@greenhaul.com.mx',
+    pass: 'TU_CONTRASEÑA_SMTP'
+  }
+});
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json());
+
+// --- Ruta Raíz ---
+app.get('/', (req, res) => {
+  res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
+});
+
+// --- Recuperación de contraseña ---
+app.post('/api/recover-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: 'El correo es obligatorio.' });
+  }
+  try {
+    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No existe ninguna cuenta con ese correo.' });
+    }
+
+    const user = result.rows[0];
+    const tempPassword = crypto.randomBytes(4).toString('hex');
+    const hashedTempPassword = await bcrypt.hash(tempPassword, 10);
+
+    await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
+
+    await transporterAuth.sendMail({
+      from: 'auth@greenhaul.com.mx',
+      to: email,
+      subject: 'Recuperación de Contraseña - GreenHaul',
+      html: `<h2>Recuperación de Contraseña</h2>
+      <p>Hola ${user.name},</p>
+      <p>Hemos generado una contraseña temporal para que puedas ingresar a tu cuenta:</p>
+      <p><b>${tempPassword}</b></p>
+      <p>Por seguridad, te recomendamos cambiarla desde tu perfil una vez que inicies sesión.</p>
+      <br>
+      <p>Gracias por usar GreenHaul.</p>`
+    });
+
+    res.status(200).json({ message: 'Se ha enviado una contraseña temporal al correo indicado.' });
+  } catch (err) {
+    console.error('❌ Error en POST /api/recover-password:', err);
+    res.status(500).json({ message: 'Error al procesar la solicitud de recuperación.' });
+  }
+});
+
 // --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
 const transporter = nodemailer.createTransport({
   host: 'smtp.greenhaul.com', // Cambia por tu host SMTP real
