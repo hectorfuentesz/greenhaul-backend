@@ -2,6 +2,7 @@
 // Versión optimizada para procesar el pago con MercadoPago PRIMERO antes de guardar la orden y enviar correo.
 // El correo se envía DESPUÉS de responder al cliente (flujo más rápido y fluido).
 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { db, connectAndSetupDatabase } = require('./database.js');
