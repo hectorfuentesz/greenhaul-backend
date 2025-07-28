@@ -8,6 +8,7 @@ const { db, connectAndSetupDatabase } = require('./database.js');
 const bcrypt = require('bcryptjs');
 const mercadopago = require('mercadopago');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto'); // CORRECCIÓN: Importar crypto
 
 // --------- INTEGRACIÓN MERCADO PAGO SANDBOX ----------
 mercadopago.configurations.setAccessToken('TEST-3573758142529800-072110-c4df12b415f0d9cd6bae9827221cef9e-692524464');
@@ -19,7 +20,7 @@ const transporterNotificaciones = nodemailer.createTransport({
   secure: true,
   auth: {
     user: 'notificaciones@greenhaul.com',
-    pass: 'TU_CONTRASEÑA_SMTP'
+    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
   }
 });
 
@@ -29,7 +30,17 @@ const transporterAuth = nodemailer.createTransport({
   secure: true,
   auth: {
     user: 'auth@greenhaul.com.mx',
-    pass: 'TU_CONTRASEÑA_SMTP'
+    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
+  }
+});
+
+const transporter = nodemailer.createTransport({
+  host: 'smtp.greenhaul.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: 'notificaciones@greenhaul.com',
+    pass: process.env.SMTP_PASS // CORRECCIÓN: Usa variable de entorno
   }
 });
 
@@ -80,28 +91,6 @@ app.post('/api/recover-password', async (req, res) => {
     console.error('❌ Error en POST /api/recover-password:', err);
     res.status(500).json({ message: 'Error al procesar la solicitud de recuperación.' });
   }
-});
-
-// --------- CONFIGURACIÓN CORREO CORPORATIVO (AJUSTA CON TUS DATOS SMTP) ----------
-const transporter = nodemailer.createTransport({
-  host: 'smtp.greenhaul.com', // Cambia por tu host SMTP real
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'notificaciones@greenhaul.com',
-    pass: 'TU_CONTRASEÑA_SMTP'
-  }
-});
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-// --- Ruta Raíz ---
-app.get('/', (req, res) => {
-  res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
 });
 
 // --- REGISTRO DE USUARIO ---
