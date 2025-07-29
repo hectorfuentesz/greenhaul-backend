@@ -4,6 +4,7 @@
 // AHORA usando RESEND para todos los correos (sin nodemailer).
 // MODIFICADO: Ahora incluye notificación interna de pedidos a notifications_orders@greenhaul.com.mx
 // MODIFICADO: El correo de soporte es soporte@greenhaul.com.mx y usado en el contacto
+// MODIFICADO: Las confirmaciones de pedidos al cliente se envían desde confirmacion_pedido@greenhaul.com.mx
 
 require('dotenv').config();
 const { Resend } = require('resend');
@@ -452,7 +453,7 @@ app.get('/api/users/:userId/orders', async (req, res) => {
 
 // Crear una nueva orden (con vinculación en order_addresses)
 app.post('/api/orders', async (req, res) => {
-  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id } = req.body; 
+  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id, email, nombre } = req.body; 
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
     return res.status(400).json({ message: 'El ID de usuario, el monto total y al menos un ítem de carrito son obligatorios para crear una orden.' });
   }
@@ -523,6 +524,23 @@ app.post('/api/orders', async (req, res) => {
       });
     } catch (mailErr) {
       console.warn('No se pudo enviar correo interno de pedido:', mailErr);
+    }
+    // ENVÍO DE CORREO DE CONFIRMACIÓN AL CLIENTE DESDE NUEVO CORREO
+    if (email && nombre) {
+      try {
+        await resend.emails.send({
+          from: 'confirmacion_pedido@greenhaul.com.mx',
+          to: email,
+          subject: '¡Tu pedido en GreenHaul fue recibido!',
+          html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
+          <p>Tu pedido ha sido recibido y está en proceso.<br>
+          <b>Folio de orden:</b> ${orderFolio}<br>
+          <b>Total:</b> $${parseFloat(total_amount).toFixed(2)}</p>
+          <p>Un asesor se contactará contigo para el seguimiento.</p>`
+        });
+      } catch (mailErr) {
+        console.warn('No se pudo enviar correo de confirmación de pedido al cliente:', mailErr);
+      }
     }
     res.status(201).json({ message: 'Orden creada correctamente y direcciones vinculadas.', order: { id: orderFolio } });
   } catch (err) {
@@ -647,9 +665,9 @@ app.post('/api/mercadopago', async (req, res) => {
         mercado_pago: paymentData
       });
 
-      // 4. ENVÍA el correo de confirmación en segundo plano (no bloquea la respuesta)
+      // 4. ENVÍA el correo de confirmación en segundo plano (no bloquea la respuesta) DESDE NUEVO CORREO
       resend.emails.send({
-        from: 'soporte@greenhaul.com.mx',
+        from: 'confirmacion_pedido@greenhaul.com.mx',
         to: email,
         subject: '¡Tu pedido en GreenHaul fue procesado!',
         html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
