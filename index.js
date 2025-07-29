@@ -1,10 +1,11 @@
 // Archivo: index.js (GreenHaul backend robusto con integración MercadoPago v1.5.0 en modo SANDBOX)
 // Versión optimizada para procesar el pago con MercadoPago PRIMERO antes de guardar la orden y enviar correo.
-// El correo se envía DESPUÉS de responder al cliente (flujo más rápido y fluido).
+// Los correos se envían DESPUÉS de responder al cliente (flujo más rápido y fluido).
 // AHORA usando RESEND para todos los correos (sin nodemailer).
 // MODIFICADO: Ahora incluye notificación interna de pedidos a notifications_orders@greenhaul.com.mx
 // MODIFICADO: El correo de soporte es soporte@greenhaul.com.mx y usado en el contacto
 // MODIFICADO: Las confirmaciones de pedidos al cliente se envían desde confirmacion_pedido@greenhaul.com.mx
+// MODIFICADO: La recuperación de contraseña se envía exclusivamente desde auth@greenhaul.com.mx por Resend
 
 require('dotenv').config();
 const { Resend } = require('resend');
@@ -54,7 +55,7 @@ app.post('/api/recover-password', async (req, res) => {
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
 
     await resend.emails.send({
-      from: 'soporte@greenhaul.com.mx', // USAR soporte para recuperación
+      from: 'auth@greenhaul.com.mx', // USAR auth para recuperación exclusivamente con Resend
       to: email,
       subject: 'Recuperación de Contraseña - GreenHaul',
       html: `<h2>Recuperación de Contraseña</h2>
