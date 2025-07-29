@@ -2,6 +2,8 @@
 // Versión optimizada para procesar el pago con MercadoPago PRIMERO antes de guardar la orden y enviar correo.
 // El correo se envía DESPUÉS de responder al cliente (flujo más rápido y fluido).
 // AHORA usando RESEND para todos los correos (sin nodemailer).
+// MODIFICADO: Ahora incluye notificación interna de pedidos a notifications_orders@greenhaul.com.mx
+// MODIFICADO: El correo de soporte es soporte@greenhaul.com.mx y usado en el contacto
 
 require('dotenv').config();
 const { Resend } = require('resend');
@@ -51,7 +53,7 @@ app.post('/api/recover-password', async (req, res) => {
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
 
     await resend.emails.send({
-      from: 'auth@greenhaul.com.mx',
+      from: 'soporte@greenhaul.com.mx', // USAR soporte para recuperación
       to: email,
       subject: 'Recuperación de Contraseña - GreenHaul',
       html: `<h2>Recuperación de Contraseña</h2>
@@ -84,7 +86,7 @@ app.post('/api/register', async (req, res) => {
     // Enviar correo de bienvenida
     try {
       await resend.emails.send({
-        from: 'notificaciones@greenhaul.com',
+        from: 'soporte@greenhaul.com.mx', // USAR soporte para bienvenida
         to: email,
         subject: '¡Bienvenido a GreenHaul!',
         html: `<h2>¡Bienvenido, ${name}!</h2><p>Tu cuenta ha sido creada correctamente. Ahora puedes comenzar a rentar y comprar con nosotros.</p>`
@@ -496,6 +498,32 @@ app.post('/api/orders', async (req, res) => {
       await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
     }
     await clientDbTransaction.query('COMMIT');
+    // ENVÍO DE CORREO INTERNO (notificación de pedido)
+    try {
+      await resend.emails.send({
+        from: 'notifications_orders@greenhaul.com.mx',
+        to: 'notifications_orders@greenhaul.com.mx',
+        subject: `Nuevo pedido recibido - Folio ${orderFolio}`,
+        html: `
+          <h2>Nuevo pedido realizado</h2>
+          <p>Usuario ID: ${user_id}</p>
+          <p>Folio: ${orderFolio}</p>
+          <p>Total: $${parseFloat(total_amount).toFixed(2)}</p>
+          <h3>Productos:</h3>
+          <ul>
+            ${cartItems.map(item => `<li>${item.name} (x${item.quantity}) - $${item.price}</li>`).join('')}
+          </ul>
+          <h3>Dirección de entrega:</h3>
+          <p>ID: ${delivery_address_id}</p>
+          <h3>Dirección de recolección:</h3>
+          <p>ID: ${pickup_address_id}</p>
+          <br>
+          <p>Fechas de renta: ${JSON.stringify(rentalDates)}</p>
+        `
+      });
+    } catch (mailErr) {
+      console.warn('No se pudo enviar correo interno de pedido:', mailErr);
+    }
     res.status(201).json({ message: 'Orden creada correctamente y direcciones vinculadas.', order: { id: orderFolio } });
   } catch (err) {
     if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
@@ -576,6 +604,32 @@ app.post('/api/mercadopago', async (req, res) => {
           await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
         }
         await clientDbTransaction.query('COMMIT');
+        // ENVÍO DE CORREO INTERNO (notificación de pedido)
+        try {
+          await resend.emails.send({
+            from: 'notifications_orders@greenhaul.com.mx',
+            to: 'notifications_orders@greenhaul.com.mx',
+            subject: `Nuevo pedido pagado - Folio ${orderFolio}`,
+            html: `
+              <h2>Nuevo pedido pagado</h2>
+              <p>Cliente: ${nombre} (${email})</p>
+              <p>Folio: ${orderFolio}</p>
+              <p>Total: $${monto.toFixed(2)}</p>
+              <h3>Productos:</h3>
+              <ul>
+                ${cartItems.map(item => `<li>${item.name} (x${item.quantity}) - $${item.price}</li>`).join('')}
+              </ul>
+              <h3>Dirección de entrega:</h3>
+              <p>ID: ${delivery_address_id}</p>
+              <h3>Dirección de recolección:</h3>
+              <p>ID: ${pickup_address_id}</p>
+              <br>
+              <p>Fechas de renta: ${JSON.stringify(rentalDates)}</p>
+            `
+          });
+        } catch (mailErr) {
+          console.warn('No se pudo enviar correo interno de pedido pagado:', mailErr);
+        }
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
         console.error("❌ Error al guardar orden después de pago Mercado Pago:", err);
@@ -595,7 +649,7 @@ app.post('/api/mercadopago', async (req, res) => {
 
       // 4. ENVÍA el correo de confirmación en segundo plano (no bloquea la respuesta)
       resend.emails.send({
-        from: 'notificaciones@greenhaul.com',
+        from: 'soporte@greenhaul.com.mx',
         to: email,
         subject: '¡Tu pedido en GreenHaul fue procesado!',
         html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
@@ -634,16 +688,32 @@ app.post('/api/contact', async (req, res) => {
       'INSERT INTO contact_messages (full_name, email, message) VALUES ($1, $2, $3)',
       [full_name, email, message]
     );
+    // Enviar acuse de recibo al cliente
     try {
       await resend.emails.send({
-        from: 'notificaciones@greenhaul.com',
+        from: 'soporte@greenhaul.com.mx',
         to: email,
         subject: '¡Gracias por contactar a GreenHaul!',
         html: `<h2>¡Hola, ${full_name}!</h2>
         <p>Recibimos tu mensaje. Pronto te contactaremos.</p>`
       });
     } catch (mailErr) {
-      console.warn('No se pudo enviar correo de contacto:', mailErr);
+      console.warn('No se pudo enviar correo de acuse al cliente:', mailErr);
+    }
+    // Enviar notificación interna al equipo de soporte
+    try {
+      await resend.emails.send({
+        from: 'soporte@greenhaul.com.mx',
+        to: 'soporte@greenhaul.com.mx',
+        subject: `Nuevo mensaje de contacto de ${full_name}`,
+        html: `<h2>Nuevo mensaje de contacto</h2>
+          <p>Nombre: ${full_name}</p>
+          <p>Correo: ${email}</p>
+          <p>Mensaje:</p>
+          <p>${message}</p>`
+      });
+    } catch (mailErr) {
+      console.warn('No se pudo enviar correo interno de contacto:', mailErr);
     }
     res.status(201).json({ message: '¡Mensaje enviado correctamente! Pronto te contactaremos.' });
   } catch (err) {
