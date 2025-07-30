@@ -27,6 +27,35 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+/**
+ * Definición de la composición de paquetes y accesorios que dependen de inventario de otros productos.
+ * Los IDs deben coincidir con los de la base de datos.
+ */
+const bundleContents = {
+  // Paquete Básico
+  101: [
+    { id: 201, quantity: 5 }, // Caja HDPE 15kg (chica)
+    { id: 202, quantity: 5 }, // Caja Cozumel 20kg (mediana)
+  ],
+  // Paquete Estándar
+  102: [
+    { id: 201, quantity: 5 },
+    { id: 202, quantity: 5 },
+    { id: 203, quantity: 2 }, // Caja PP 30L (grande)
+    { id: 209, quantity: 1 }, // Diablito de carga
+  ],
+  // Paquete Premium
+  103: [
+    { id: 201, quantity: 10 },
+    { id: 202, quantity: 10 },
+    { id: 203, quantity: 5 },
+    { id: 209, quantity: 2 },
+    { id: 208, quantity: 2 }, // Cobija de mudanza
+    { id: 205, quantity: 1 }, // Cinta adhesiva ecológica
+  ]
+  // Si tienes más paquetes que dependen de inventario de otros productos, agrégalos aquí.
+};
+
 // --- Ruta Raíz ---
 app.get('/', (req, res) => {
   res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
@@ -465,12 +494,25 @@ app.post('/api/orders', async (req, res) => {
   try {
     clientDbTransaction = await db.connect();
     await clientDbTransaction.query('BEGIN');
-    // Validar inventario antes de crear la orden
+    // Validación robusta de inventario para bundles y productos individuales
+    const inventoryCheck = {}; // { id: cantidad total requerida }
     for (const item of cartItems) {
-      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
+      if (bundleContents[item.id]) {
+        // Si el producto es un paquete/bundle
+        bundleContents[item.id].forEach(sub => {
+          inventoryCheck[sub.id] = (inventoryCheck[sub.id] || 0) + (sub.quantity * item.quantity);
+        });
+      } else {
+        // Producto individual
+        inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
+      }
+    }
+    // Ahora valida el inventario de todos los productos requeridos
+    for (const prodId in inventoryCheck) {
+      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [prodId]);
       const stock = prodRes.rows[0]?.stock ?? 0;
-      if (stock < item.quantity) {
-        throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
+      if (stock < inventoryCheck[prodId]) {
+        throw new Error(`No hay suficiente inventario para el producto con ID ${prodId}. Quedan ${stock} pieza(s).`);
       }
     }
     const timestamp = Date.now();
@@ -486,12 +528,15 @@ app.post('/api/orders', async (req, res) => {
     const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                      VALUES ($1, $2, $3, $4) RETURNING id;`;
     await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-    // 3. Insertar los items y descontar inventario
+    // 3. Descontar inventario de todos los productos necesarios
+    for (const prodId in inventoryCheck) {
+      await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [inventoryCheck[prodId], prodId]);
+    }
+    // 4. Insertar los items (lo que el usuario pidió, no los componentes)
     for (const item of cartItems) {
       if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
         throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
       }
-      await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.id]);
       const itemInsertQuery = `
         INSERT INTO order_items (order_id, product_name, quantity, price)
         VALUES ($1, $2, $3, $4) RETURNING id;
@@ -554,9 +599,6 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // =============== PAGO MERCADO PAGO OPTIMIZADO ===============
-// Procesa el pago con MercadoPago PRIMERO, luego guarda la orden y responde al usuario.
-// El correo se envía después de responder (no ralentiza la respuesta).
-
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
   const token = typeof mercadoPagoToken === 'string' ? mercadoPagoToken : (mercadoPagoToken?.token || '');
@@ -593,12 +635,23 @@ app.post('/api/mercadopago', async (req, res) => {
       try {
         clientDbTransaction = await db.connect();
         await clientDbTransaction.query('BEGIN');
-        // Validación mínima de inventario (puedes hacerla después si tienes lógica de reversa)
+        // Validación robusta de inventario para bundles y productos individuales
+        const inventoryCheck = {}; // { id: cantidad total requerida }
         for (const item of cartItems) {
-          const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [item.id]);
+          if (bundleContents[item.id]) {
+            bundleContents[item.id].forEach(sub => {
+              inventoryCheck[sub.id] = (inventoryCheck[sub.id] || 0) + (sub.quantity * item.quantity);
+            });
+          } else {
+            inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
+          }
+        }
+        // Valida inventario
+        for (const prodId in inventoryCheck) {
+          const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [prodId]);
           const stock = prodRes.rows[0]?.stock ?? 0;
-          if (stock < item.quantity) {
-            throw new Error(`No hay suficiente inventario para ${item.name}. Quedan ${stock} pieza(s).`);
+          if (stock < inventoryCheck[prodId]) {
+            throw new Error(`No hay suficiente inventario para el producto con ID ${prodId}. Quedan ${stock} pieza(s).`);
           }
         }
         const timestamp = Date.now();
@@ -613,8 +666,11 @@ app.post('/api/mercadopago', async (req, res) => {
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
+        // Descontar inventario de todos los productos necesarios
+        for (const prodId in inventoryCheck) {
+          await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [inventoryCheck[prodId], prodId]);
+        }
         for (const item of cartItems) {
-          await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [item.quantity, item.id]);
           const itemInsertQuery = `
             INSERT INTO order_items (order_id, product_name, quantity, price)
             VALUES ($1, $2, $3, $4) RETURNING id;
@@ -652,7 +708,6 @@ app.post('/api/mercadopago', async (req, res) => {
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
         console.error("❌ Error al guardar orden después de pago Mercado Pago:", err);
-        // Aquí podrías intentar revertir/cancelar el pago con MercadoPago en caso de error grave
         return res.status(500).json({ message: `El pago fue exitoso pero hubo un error al guardar la orden: ${err.message}` });
       } finally {
         if (clientDbTransaction) clientDbTransaction.release();
