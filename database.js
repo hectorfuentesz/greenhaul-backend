@@ -1,4 +1,4 @@
-// Archivo: database.js (Versión Final, robusta, con tabla products incluida y todas las migraciones para GreenHaul)
+// Archivo: database.js (Completísimo, GreenHaul, incluye bundle_contents y columna type en products)
 
 const { Pool } = require('pg');
 
@@ -38,6 +38,31 @@ const createTableQueryProducts = `
     category VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// MODIFICACIÓN: Agregar columna "type" a products (si no existe)
+const alterTableQueryProductsAddType = `
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name='products' AND column_name='type'
+    ) THEN
+      ALTER TABLE products ADD COLUMN type VARCHAR(20) DEFAULT 'individual';
+    END IF;
+  END
+  $$;
+`;
+
+// NUEVA TABLA: bundle_contents
+const createTableQueryBundleContents = `
+  CREATE TABLE IF NOT EXISTS bundle_contents (
+    id SERIAL PRIMARY KEY,
+    bundle_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL CHECK (quantity > 0)
   );
 `;
 
@@ -115,6 +140,8 @@ async function connectAndSetupDatabase() {
     console.log("Tabla 'users' verificada/creada.");
     await clientForSetup.query(createTableQueryProducts);
     console.log("Tabla 'products' verificada/creada.");
+    await clientForSetup.query(alterTableQueryProductsAddType); // NUEVO: asegura columna "type"
+    console.log("Columna 'type' verificada/agregada en 'products'.");
     await clientForSetup.query(createTableQueryAddresses);
     console.log("Tabla 'addresses' verificada/creada.");
     await clientForSetup.query(createTableQueryOrders);
@@ -125,6 +152,8 @@ async function connectAndSetupDatabase() {
     console.log("Tabla 'order_addresses' verificada/creada.");
     await clientForSetup.query(createTableQueryContactMessages);
     console.log("Tabla 'contact_messages' verificada/creada.");
+    await clientForSetup.query(createTableQueryBundleContents); // NUEVO: tabla de composición de paquetes
+    console.log("Tabla 'bundle_contents' verificada/creada.");
     console.log('✅ Base de datos PostgreSQL en Railway verificada/configurada.');
   } catch (err) {
     console.error("❌ Error CRÍTICO al conectar o configurar la base de datos (setup):", err.stack);
