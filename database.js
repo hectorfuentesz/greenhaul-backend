@@ -1,9 +1,9 @@
-// Archivo: database.js (Completísimo, GreenHaul, incluye bundle_contents y columna type en products)
+// Archivo: database.js (GreenHaul, completo, incluye bundle_contents, columna type en products y tabla reservas por fechas)
 
 const { Pool } = require('pg');
 
 // Configuración de la Pool de conexiones a PostgreSQL.
-// Usa la URL pública de Railway proporcionada:
+// Cambia esta URL por la de producción cuando sea necesario.
 const pool = new Pool({ 
   connectionString: 'postgresql://postgres:ITYRPvLotXzkvsAUUjEhlExxKxYPrMtN@ballast.proxy.rlwy.net:32833/railway',
   ssl: {
@@ -56,13 +56,28 @@ const alterTableQueryProductsAddType = `
   $$;
 `;
 
-// NUEVA TABLA: bundle_contents
+// Tabla 'bundle_contents' (productos que componen cada paquete)
 const createTableQueryBundleContents = `
   CREATE TABLE IF NOT EXISTS bundle_contents (
     id SERIAL PRIMARY KEY,
     bundle_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL CHECK (quantity > 0)
+  );
+`;
+
+// Tabla 'reservas' (manejo de inventario por fechas)
+const createTableQueryReservas = `
+  CREATE TABLE IF NOT EXISTS reservas (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    cantidad INTEGER NOT NULL CHECK (cantidad > 0),
+    fecha_inicio DATE NOT NULL,
+    fecha_fin DATE NOT NULL,
+    usuario_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    estado VARCHAR(20) DEFAULT 'activa', -- activa, cancelada, completada, etc.
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
 `;
 
@@ -154,6 +169,8 @@ async function connectAndSetupDatabase() {
     console.log("Tabla 'contact_messages' verificada/creada.");
     await clientForSetup.query(createTableQueryBundleContents); // NUEVO: tabla de composición de paquetes
     console.log("Tabla 'bundle_contents' verificada/creada.");
+    await clientForSetup.query(createTableQueryReservas); // NUEVO: tabla de reservas por fechas
+    console.log("Tabla 'reservas' verificada/creada.");
     console.log('✅ Base de datos PostgreSQL en Railway verificada/configurada.');
   } catch (err) {
     console.error("❌ Error CRÍTICO al conectar o configurar la base de datos (setup):", err.stack);
