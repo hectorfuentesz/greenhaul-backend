@@ -74,6 +74,38 @@ async function getAvailableStock(productId, cantidadNecesaria, fechaInicio, fech
   return stock - reservadas >= cantidadNecesaria;
 }
 
+// --- Utilidad para consultar inventario disponible por fechas ---
+async function getAvailableStock(productId, cantidadNecesaria, fechaInicio, fechaFin) {
+  const stockResult = await db.query('SELECT stock FROM products WHERE id = $1', [productId]);
+  const stock = stockResult.rows[0]?.stock ?? 0;
+  const reservasResult = await db.query(
+    `SELECT COALESCE(SUM(cantidad), 0) AS reservadas 
+     FROM reservas 
+     WHERE product_id = $1 
+       AND estado = 'activa'
+       AND fecha_inicio <= $2
+       AND fecha_fin >= $3`,
+    [productId, fechaFin, fechaInicio]
+  );
+  const reservadas = reservasResult.rows[0]?.reservadas ?? 0;
+  return { disponible: stock - reservadas >= cantidadNecesaria, cantidad_maxima: stock - reservadas };
+}
+
+// --- Ruta para consultar disponibilidad de producto por fechas y cantidad ---
+app.get('/api/products/:id/availability', async (req, res) => {
+  const productId = req.params.id;
+  const { fecha_inicio, fecha_fin, cantidad } = req.query;
+  if (!fecha_inicio || !fecha_fin || !cantidad) {
+    return res.status(400).json({ message: 'Debes proporcionar fecha_inicio, fecha_fin y cantidad.' });
+  }
+  try {
+    const result = await getAvailableStock(productId, parseInt(cantidad), fecha_inicio, fecha_fin);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: 'Error al consultar disponibilidad.', error: err.message });
+  }
+});
+
 // --- Ruta Raíz ---
 app.get('/', (req, res) => {
   res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
