@@ -6,6 +6,7 @@
 // MODIFICADO: El correo de soporte es soporte@greenhaul.com.mx y usado en el contacto
 // MODIFICADO: Las confirmaciones de pedidos al cliente se envían desde confirmacion_pedido@greenhaul.com.mx
 // MODIFICADO: La recuperación de contraseña se envía exclusivamente desde auth@greenhaul.com.mx por Resend
+// MODIFICADO: Inventario ahora considera reservas por fechas
 
 require('dotenv').config();
 const { Resend } = require('resend');
@@ -56,6 +57,23 @@ const bundleContents = {
   // Si tienes más paquetes que dependen de inventario de otros productos, agrégalos aquí.
 };
 
+// --- Utilidad para consultar inventario disponible por fechas ---
+async function getAvailableStock(productId, cantidadNecesaria, fechaInicio, fechaFin) {
+  const stockResult = await db.query('SELECT stock FROM products WHERE id = $1', [productId]);
+  const stock = stockResult.rows[0]?.stock ?? 0;
+  const reservasResult = await db.query(
+    `SELECT COALESCE(SUM(cantidad), 0) AS reservadas 
+     FROM reservas 
+     WHERE product_id = $1 
+       AND estado = 'activa'
+       AND fecha_inicio <= $2
+       AND fecha_fin >= $3`,
+    [productId, fechaFin, fechaInicio]
+  );
+  const reservadas = reservasResult.rows[0]?.reservadas ?? 0;
+  return stock - reservadas >= cantidadNecesaria;
+}
+
 // --- Ruta Raíz ---
 app.get('/', (req, res) => {
   res.send('✅ Backend GreenHaul funcionando correctamente 🚛 (SANDBOX)');
@@ -84,7 +102,7 @@ app.post('/api/recover-password', async (req, res) => {
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
 
     await resend.emails.send({
-      from: 'auth@greenhaul.com.mx', // USAR auth para recuperación exclusivamente con Resend
+      from: 'auth@greenhaul.com.mx',
       to: email,
       subject: 'Recuperación de Contraseña - GreenHaul',
       html: `<h2>Recuperación de Contraseña</h2>
@@ -117,7 +135,7 @@ app.post('/api/register', async (req, res) => {
     // Enviar correo de bienvenida
     try {
       await resend.emails.send({
-        from: 'soporte@greenhaul.com.mx', // USAR soporte para bienvenida
+        from: 'soporte@greenhaul.com.mx',
         to: email,
         subject: '¡Bienvenido a GreenHaul!',
         html: `<h2>¡Bienvenido, ${name}!</h2><p>Tu cuenta ha sido creada correctamente. Ahora puedes comenzar a rentar y comprar con nosotros.</p>`
@@ -221,29 +239,21 @@ app.put('/api/users/:id', async (req, res) => {
 app.put('/api/users/:id/change-password', async (req, res) => {
   const { id } = req.params;
   const { currentPassword, newPassword } = req.body;
-
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ message: 'Debes proporcionar la contraseña actual y la nueva contraseña.' });
   }
-
   try {
-    // Obtener el hash actual de la contraseña del usuario
     const result = await db.query('SELECT password FROM users WHERE id = $1', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
     const user = result.rows[0];
-
-    // Validar la contraseña actual (puede ser la temporal)
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
       return res.status(401).json({ message: 'La contraseña actual es incorrecta.' });
     }
-
-    // Hashear la nueva contraseña y actualizarla en la base de datos
     const newHashedPassword = await bcrypt.hash(newPassword, 10);
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [newHashedPassword, id]);
-
     res.status(200).json({ message: 'Contraseña actualizada exitosamente.' });
   } catch (err) {
     console.error('❌ Error en PUT /api/users/:id/change-password:', err);
@@ -255,7 +265,6 @@ app.put('/api/users/:id/change-password', async (req, res) => {
 app.get('/api/users/:userId/dashboard', async (req, res) => {
   const { userId } = req.params;
   try {
-    // Cambiado para contar pedidos con status 'activo' y 'pagado'
     const activeOrdersResult = await db.query(
       "SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status IN ('activo', 'pagado')", [userId]
     );
@@ -419,16 +428,6 @@ app.delete('/api/addresses/:id', async (req, res) => {
   }
 });
 
-// =============== NUEVA TABLA: order_addresses ===============
-// CREATE TABLE IF NOT EXISTS order_addresses (
-//   id SERIAL PRIMARY KEY,
-//   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-//   order_folio VARCHAR(50) NOT NULL REFERENCES orders(order_folio) ON DELETE CASCADE,
-//   delivery_address_id INTEGER REFERENCES addresses(id),
-//   pickup_address_id INTEGER REFERENCES addresses(id),
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-// );
-
 // --- Obtener las direcciones asociadas a una orden (por folio o por ID) ---
 app.get('/api/orders/:orderFolio/addresses', async (req, res) => {
   const { orderFolio } = req.params;
@@ -481,38 +480,38 @@ app.get('/api/users/:userId/orders', async (req, res) => {
   }
 });
 
-// Crear una nueva orden (con vinculación en order_addresses)
+// Crear una nueva orden (con vinculación en order_addresses y reservas por fechas)
 app.post('/api/orders', async (req, res) => {
-  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id, email, nombre } = req.body; 
+  const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id, email, nombre } = req.body;
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
     return res.status(400).json({ message: 'El ID de usuario, el monto total y al menos un ítem de carrito son obligatorios para crear una orden.' });
   }
   if (!delivery_address_id || !pickup_address_id) {
     return res.status(400).json({ message: 'Debes proporcionar los IDs de las direcciones de entrega y recolección.' });
   }
+  if (!rentalDates?.fecha_inicio || !rentalDates?.fecha_fin) {
+    return res.status(400).json({ message: 'Debes proporcionar las fechas de renta (inicio y fin).' });
+  }
   let clientDbTransaction;
   try {
     clientDbTransaction = await db.connect();
     await clientDbTransaction.query('BEGIN');
-    // Validación robusta de inventario para bundles y productos individuales
-    const inventoryCheck = {}; // { id: cantidad total requerida }
+    // Validación robusta de inventario por fechas
+    const inventoryCheck = {};
     for (const item of cartItems) {
       if (bundleContents[item.id]) {
-        // Si el producto es un paquete/bundle
         bundleContents[item.id].forEach(sub => {
           inventoryCheck[sub.id] = (inventoryCheck[sub.id] || 0) + (sub.quantity * item.quantity);
         });
       } else {
-        // Producto individual
         inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
       }
     }
-    // Ahora valida el inventario de todos los productos requeridos
+    // Valida inventario considerando reservas activas
     for (const prodId in inventoryCheck) {
-      const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [prodId]);
-      const stock = prodRes.rows[0]?.stock ?? 0;
-      if (stock < inventoryCheck[prodId]) {
-        throw new Error(`No hay suficiente inventario para el producto con ID ${prodId}. Quedan ${stock} pieza(s).`);
+      const disponible = await getAvailableStock(prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin);
+      if (!disponible) {
+        throw new Error(`No hay suficiente inventario para el producto con ID ${prodId} en las fechas seleccionadas.`);
       }
     }
     const timestamp = Date.now();
@@ -528,15 +527,16 @@ app.post('/api/orders', async (req, res) => {
     const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                      VALUES ($1, $2, $3, $4) RETURNING id;`;
     await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-    // 3. Descontar inventario de todos los productos necesarios
+    // 3. Insertar reservas por fechas
     for (const prodId in inventoryCheck) {
-      await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [inventoryCheck[prodId], prodId]);
+      await db.query(
+        `INSERT INTO reservas (product_id, cantidad, fecha_inicio, fecha_fin, usuario_id, estado) 
+         VALUES ($1, $2, $3, $4, $5, 'activa')`,
+        [prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin, user_id]
+      );
     }
-    // 4. Insertar los items (lo que el usuario pidió, no los componentes)
+    // 4. Insertar los items (lo que el usuario pidió)
     for (const item of cartItems) {
-      if (!item.name || item.name.trim() === '' || item.quantity === undefined || item.price === undefined || item.price < 0) {
-        throw new Error(`Ítem del carrito con ID ${item.id || 'desconocido'} tiene datos inválidos (nombre, cantidad o precio).`);
-      }
       const itemInsertQuery = `
         INSERT INTO order_items (order_id, product_name, quantity, price)
         VALUES ($1, $2, $3, $4) RETURNING id;
@@ -598,7 +598,7 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// =============== PAGO MERCADO PAGO OPTIMIZADO ===============
+// =============== PAGO MERCADO PAGO OPTIMIZADO CON RESERVA POR FECHAS ===============
 app.post('/api/mercadopago', async (req, res) => {
   const { mercadoPagoToken, monto, user_id, email, nombre, cartItems, delivery_address_id, pickup_address_id, rentalDates } = req.body;
   const token = typeof mercadoPagoToken === 'string' ? mercadoPagoToken : (mercadoPagoToken?.token || '');
@@ -611,6 +611,7 @@ app.post('/api/mercadopago', async (req, res) => {
   if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) return res.status(400).json({ message: 'Faltan los items del carrito.' });
   if (!delivery_address_id) return res.status(400).json({ message: 'Falta la dirección de entrega.' });
   if (!pickup_address_id) return res.status(400).json({ message: 'Falta la dirección de recolección.' });
+  if (!rentalDates?.fecha_inicio || !rentalDates?.fecha_fin) return res.status(400).json({ message: 'Faltan las fechas de renta (inicio y fin).' });
 
   try {
     // 1. Procesa el pago con MercadoPago PRIMERO
@@ -629,14 +630,14 @@ app.post('/api/mercadopago', async (req, res) => {
     const paymentData = payment.response || payment.body || payment;
 
     if (paymentData.status === 'approved') {
-      // 2. Guarda la orden, vincula direcciones, descuenta inventario
+      // 2. Guarda la orden, vincula direcciones, reserva inventario por fechas
       let clientDbTransaction;
       let orderId, orderFolio;
       try {
         clientDbTransaction = await db.connect();
         await clientDbTransaction.query('BEGIN');
-        // Validación robusta de inventario para bundles y productos individuales
-        const inventoryCheck = {}; // { id: cantidad total requerida }
+        // Validación robusta de inventario por fechas
+        const inventoryCheck = {};
         for (const item of cartItems) {
           if (bundleContents[item.id]) {
             bundleContents[item.id].forEach(sub => {
@@ -646,19 +647,17 @@ app.post('/api/mercadopago', async (req, res) => {
             inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
           }
         }
-        // Valida inventario
+        // Valida inventario por fechas
         for (const prodId in inventoryCheck) {
-          const prodRes = await db.query('SELECT stock FROM products WHERE id = $1', [prodId]);
-          const stock = prodRes.rows[0]?.stock ?? 0;
-          if (stock < inventoryCheck[prodId]) {
-            throw new Error(`No hay suficiente inventario para el producto con ID ${prodId}. Quedan ${stock} pieza(s).`);
+          const disponible = await getAvailableStock(prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin);
+          if (!disponible) {
+            throw new Error(`No hay suficiente inventario para el producto con ID ${prodId} en las fechas seleccionadas.`);
           }
         }
         const timestamp = Date.now();
         const randomSuffix = Math.floor(Math.random() * 10000);
         const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
         const orderInsertQuery = 'INSERT INTO orders (user_id, total_amount, status, order_date, order_folio) VALUES ($1, $2, $3, $4, $5) RETURNING id, order_folio';
-        // Aquí el status es 'pagado'
         const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio];
         const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
         orderId = orderResult.rows[0].id;
@@ -666,10 +665,15 @@ app.post('/api/mercadopago', async (req, res) => {
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-        // Descontar inventario de todos los productos necesarios
+        // Insertar reservas por fechas
         for (const prodId in inventoryCheck) {
-          await db.query('UPDATE products SET stock = stock - $1 WHERE id = $2', [inventoryCheck[prodId], prodId]);
+          await db.query(
+            `INSERT INTO reservas (product_id, cantidad, fecha_inicio, fecha_fin, usuario_id, estado) 
+             VALUES ($1, $2, $3, $4, $5, 'activa')`,
+            [prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin, user_id]
+          );
         }
+        // Insertar los items
         for (const item of cartItems) {
           const itemInsertQuery = `
             INSERT INTO order_items (order_id, product_name, quantity, price)
