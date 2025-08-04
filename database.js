@@ -1,4 +1,4 @@
-// Archivo: database.js (GreenHaul, completo, incluye bundle_contents, columna type en products y tabla reservas por fechas)
+// Archivo: database.js (GreenHaul, completo, incluye bundle_contents, columna type en products y tabla reservas por fechas, y columnas delivery_date/pickup_date en orders)
 
 const { Pool } = require('pg');
 
@@ -100,7 +100,7 @@ const createTableQueryAddresses = `
   );
 `;
 
-// Tabla 'orders'
+// Tabla 'orders' (ahora con delivery_date y pickup_date)
 const createTableQueryOrders = `
   CREATE TABLE IF NOT EXISTS orders (
     id SERIAL PRIMARY KEY,
@@ -108,8 +108,28 @@ const createTableQueryOrders = `
     total_amount NUMERIC(10, 2) NOT NULL,
     order_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'activo',
-    order_folio VARCHAR(50) UNIQUE NOT NULL
+    order_folio VARCHAR(50) UNIQUE NOT NULL,
+    delivery_date DATE,
+    pickup_date DATE
   );
+`;
+
+// MODIFICACIÓN: Agregar columnas delivery_date y pickup_date si no existen
+const alterOrdersAddDeliveryPickup = `
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='delivery_date'
+  ) THEN
+    ALTER TABLE orders ADD COLUMN delivery_date DATE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='pickup_date'
+  ) THEN
+    ALTER TABLE orders ADD COLUMN pickup_date DATE;
+  END IF;
+END
+$$;
 `;
 
 // Tabla 'order_items'
@@ -161,6 +181,8 @@ async function connectAndSetupDatabase() {
     console.log("Tabla 'addresses' verificada/creada.");
     await clientForSetup.query(createTableQueryOrders);
     console.log("Tabla 'orders' verificada/creada.");
+    await clientForSetup.query(alterOrdersAddDeliveryPickup);
+    console.log("Columnas 'delivery_date' y 'pickup_date' verificadas/agregadas en 'orders'.");
     await clientForSetup.query(createTableQueryOrderItems);
     console.log("Tabla 'order_items' verificada/creada.");
     await clientForSetup.query(createTableQueryOrderAddresses);
