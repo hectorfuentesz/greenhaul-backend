@@ -10,6 +10,7 @@
 // MODIFICADO: Se limita a 3 entregas y 3 recolecciones por día
 // MODIFICADO: Endpoint para fechas bloqueadas por entregas/recolecciones
 // MODIFICADO: Endpoint para estado de días del calendario (entregas/recolecciones por día para todo el año)
+// MODIFICADO: Endpoint para consultar disponibilidad concreta de entregas y recolecciones en una fecha
 
 require('dotenv').config();
 console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY);
@@ -157,6 +158,36 @@ app.get('/api/calendar/days-status', async (req, res) => {
   } catch (err) {
     console.error("❌ Error en /api/calendar/days-status:", err);
     res.status(500).json({ message: 'Error al consultar el estado de los días.', error: err.message });
+  }
+});
+
+// --- Endpoint para consultar disponibilidad de entregas/recolecciones en una fecha concreta ---
+app.get('/api/calendar/disponibilidad', async (req, res) => {
+  const { fecha } = req.query;
+  if (!fecha) {
+    return res.status(400).json({ message: 'Debes proporcionar una fecha en formato YYYY-MM-DD.' });
+  }
+  try {
+    // Checa entregas en esa fecha
+    const entregasRes = await db.query(
+      `SELECT COUNT(*) AS total FROM orders WHERE delivery_date = $1`,
+      [fecha]
+    );
+    const entregas = parseInt(entregasRes.rows[0].total) || 0;
+    // Checa recolecciones en esa fecha
+    const recoleccionesRes = await db.query(
+      `SELECT COUNT(*) AS total FROM orders WHERE pickup_date = $1`,
+      [fecha]
+    );
+    const recolecciones = parseInt(recoleccionesRes.rows[0].total) || 0;
+    res.json({
+      fecha,
+      entregas_disponibles: entregas < 3,
+      recolecciones_disponibles: recolecciones < 3
+    });
+  } catch (err) {
+    console.error("❌ Error en /api/calendar/disponibilidad:", err);
+    res.status(500).json({ message: 'Error al consultar disponibilidad de esa fecha.', error: err.message });
   }
 });
 
