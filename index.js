@@ -9,8 +9,10 @@
 // MODIFICADO: Inventario ahora considera reservas por fechas y día extra de limpieza
 // MODIFICADO: Se limita a 3 entregas y 3 recolecciones por día
 // MODIFICADO: Endpoint para fechas bloqueadas por entregas/recolecciones
+// MODIFICADO: Endpoint para estado de días del calendario (entregas/recolecciones por día para todo el año)
 
 require('dotenv').config();
+console.log('RESEND_API_KEY:', process.env.RESEND_API_KEY);
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const express = require('express');
@@ -121,6 +123,49 @@ app.get('/api/calendar/blocked-dates', async (req, res) => {
     res.json({ entregasBloqueadas, recoleccionesBloqueadas });
   } catch (err) {
     res.status(500).json({ message: 'Error al consultar fechas bloqueadas', error: err.message });
+  }
+});
+
+// --- Endpoint para estado de entregas/recolecciones de TODO el año ---
+app.get('/api/calendar/days-status', async (req, res) => {
+  try {
+    // 1. Consulta todas las entregas por día (todo el año)
+    const entregasRes = await db.query(
+      `SELECT delivery_date AS fecha, COUNT(*) AS entregas
+       FROM orders
+       WHERE delivery_date IS NOT NULL
+       GROUP BY delivery_date`
+    );
+    // 2. Consulta todas las recolecciones por día (todo el año)
+    const recoleccionesRes = await db.query(
+      `SELECT pickup_date AS fecha, COUNT(*) AS recolecciones
+       FROM orders
+       WHERE pickup_date IS NOT NULL
+       GROUP BY pickup_date`
+    );
+    // 3. Construye un mapa por fecha
+    const days = {};
+    entregasRes.rows.forEach(r => {
+      const dateStr = r.fecha.toISOString().slice(0, 10);
+      days[dateStr] = { entregas: parseInt(r.entregas), recolecciones: 0 };
+    });
+    recoleccionesRes.rows.forEach(r => {
+      const dateStr = r.fecha.toISOString().slice(0, 10);
+      if (!days[dateStr]) days[dateStr] = { entregas: 0, recolecciones: 0 };
+      days[dateStr].recolecciones = parseInt(r.recolecciones);
+    });
+    // 4. Genera arreglo de días con estatus
+    const daysArray = Object.entries(days).map(([fecha, info]) => ({
+      fecha,
+      entregas: info.entregas,
+      recolecciones: info.recolecciones,
+      entregas_disponibles: info.entregas < 3,
+      recolecciones_disponibles: info.recolecciones < 3
+    }));
+    res.json({ days: daysArray });
+  } catch (err) {
+    console.error("❌ Error en /api/calendar/days-status:", err);
+    res.status(500).json({ message: 'Error al consultar el estado de los días.', error: err.message });
   }
 });
 
