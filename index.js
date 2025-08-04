@@ -37,19 +37,16 @@ app.use(express.json());
  * Los IDs deben coincidir con los de la base de datos.
  */
 const bundleContents = {
-  // Paquete Básico
   101: [
     { id: 201, quantity: 5 }, // Caja HDPE 15kg (chica)
     { id: 202, quantity: 5 }, // Caja Cozumel 20kg (mediana)
   ],
-  // Paquete Estándar
   102: [
     { id: 201, quantity: 5 },
     { id: 202, quantity: 5 },
     { id: 203, quantity: 2 }, // Caja PP 30L (grande)
     { id: 209, quantity: 1 }, // Diablito de carga
   ],
-  // Paquete Premium
   103: [
     { id: 201, quantity: 10 },
     { id: 202, quantity: 10 },
@@ -58,7 +55,6 @@ const bundleContents = {
     { id: 208, quantity: 2 }, // Cobija de mudanza
     { id: 205, quantity: 1 }, // Cinta adhesiva ecológica
   ]
-  // Si tienes más paquetes que dependen de inventario de otros productos, agrégalos aquí.
 };
 
 // === Utility para sumar días a una fecha tipo string (YYYY-MM-DD) ===
@@ -68,7 +64,6 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-// --- Utilidad para consultar inventario disponible por fechas considerando día extra de limpieza ---
 async function getAvailableStock(productId, cantidadNecesaria, fechaInicio, fechaFin) {
   const fechaFinLimpieza = addDays(fechaFin, 1);
   const stockResult = await db.query('SELECT stock FROM products WHERE id = $1', [productId]);
@@ -129,21 +124,18 @@ app.get('/api/calendar/blocked-dates', async (req, res) => {
 // --- Endpoint para estado de entregas/recolecciones de TODO el año ---
 app.get('/api/calendar/days-status', async (req, res) => {
   try {
-    // 1. Consulta todas las entregas por día (todo el año)
     const entregasRes = await db.query(
       `SELECT delivery_date AS fecha, COUNT(*) AS entregas
        FROM orders
        WHERE delivery_date IS NOT NULL
        GROUP BY delivery_date`
     );
-    // 2. Consulta todas las recolecciones por día (todo el año)
     const recoleccionesRes = await db.query(
       `SELECT pickup_date AS fecha, COUNT(*) AS recolecciones
        FROM orders
        WHERE pickup_date IS NOT NULL
        GROUP BY pickup_date`
     );
-    // 3. Construye un mapa por fecha
     const days = {};
     entregasRes.rows.forEach(r => {
       const dateStr = r.fecha.toISOString().slice(0, 10);
@@ -154,7 +146,6 @@ app.get('/api/calendar/days-status', async (req, res) => {
       if (!days[dateStr]) days[dateStr] = { entregas: 0, recolecciones: 0 };
       days[dateStr].recolecciones = parseInt(r.recolecciones);
     });
-    // 4. Genera arreglo de días con estatus
     const daysArray = Object.entries(days).map(([fecha, info]) => ({
       fecha,
       entregas: info.entregas,
@@ -195,18 +186,24 @@ app.post('/api/recover-password', async (req, res) => {
 
     await db.query('UPDATE users SET password = $1 WHERE id = $2', [hashedTempPassword, user.id]);
 
-    await resend.emails.send({
-      from: 'auth@greenhaul.com.mx',
-      to: email,
-      subject: 'Recuperación de Contraseña - GreenHaul',
-      html: `<h2>Recuperación de Contraseña</h2>
-      <p>Hola ${user.name},</p>
-      <p>Hemos generado una contraseña temporal para que puedas ingresar a tu cuenta:</p>
-      <p><b>${tempPassword}</b></p>
-      <p>Por seguridad, te recomendamos cambiarla desde tu perfil una vez que inicies sesión.</p>
-      <br>
-      <p>Gracias por usar GreenHaul.</p>`
-    });
+    try {
+      console.log('Enviando correo de recuperación...');
+      await resend.emails.send({
+        from: 'auth@greenhaul.com.mx',
+        to: email,
+        subject: 'Recuperación de Contraseña - GreenHaul',
+        html: `<h2>Recuperación de Contraseña</h2>
+        <p>Hola ${user.name},</p>
+        <p>Hemos generado una contraseña temporal para que puedas ingresar a tu cuenta:</p>
+        <p><b>${tempPassword}</b></p>
+        <p>Por seguridad, te recomendamos cambiarla desde tu perfil una vez que inicies sesión.</p>
+        <br>
+        <p>Gracias por usar GreenHaul.</p>`
+      });
+      console.log('Correo de recuperación enviado a:', email);
+    } catch (err) {
+      console.error('❌ Error enviando correo de recuperación:', err);
+    }
 
     res.status(200).json({ message: 'Se ha enviado una contraseña temporal al correo indicado.' });
   } catch (err) {
@@ -227,14 +224,16 @@ app.post('/api/register', async (req, res) => {
     const values = [name, surname, email, hashedPassword, whatsapp];
     const result = await db.query(sql, values);
     try {
+      console.log('Enviando correo de bienvenida...');
       await resend.emails.send({
         from: 'soporte@greenhaul.com.mx',
         to: email,
         subject: '¡Bienvenido a GreenHaul!',
         html: `<h2>¡Bienvenido, ${name}!</h2><p>Tu cuenta ha sido creada correctamente. Ahora puedes comenzar a rentar y comprar con nosotros.</p>`
       });
+      console.log('Correo de bienvenida enviado a:', email);
     } catch (mailErr) {
-      console.warn('No se pudo enviar correo de bienvenida:', mailErr);
+      console.error('❌ Error enviando correo de bienvenida:', mailErr);
     }
     res.status(201).json({ message: 'Usuario registrado con éxito.', userId: result.rows[0].id });
   } catch (err) {
@@ -399,7 +398,6 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
 });
 
 // =============== RUTAS PARA GESTIÓN DE DIRECCIONES ===============
-
 app.get('/api/users/:userId/addresses', async (req, res) => {
   const { userId } = req.params;
   try {
@@ -543,29 +541,6 @@ app.get('/api/orders/:orderFolio/addresses', async (req, res) => {
 });
 
 // =============== ÓRDENES ===============
-
-app.get('/api/users/:userId/orders', async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const result = await db.query(
-      `SELECT id, total_amount AS total, order_date AS date, status, order_folio 
-       FROM orders WHERE user_id = $1 ORDER BY order_date DESC`,
-      [userId]
-    );
-    const formattedOrders = result.rows.map(order => ({
-      id: order.order_folio,
-      total: parseFloat(order.total).toFixed(2),
-      date: new Date(order.date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      status: order.status
-    }));
-    res.status(200).json(formattedOrders);
-  } catch (err) {
-    console.error("❌ Error GET /api/users/:userId/orders:", err);
-    res.status(500).json({ message: 'Error al obtener las órdenes del usuario.' });
-  }
-});
-
-// === CREAR ORDEN (con validaciones extra) ===
 app.post('/api/orders', async (req, res) => {
   const { user_id, total_amount, rentalDates, cartItems, status = 'activo', delivery_address_id, pickup_address_id, email, nombre, delivery_date, pickup_date } = req.body;
   if (!user_id || total_amount === undefined || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
@@ -584,7 +559,6 @@ app.post('/api/orders', async (req, res) => {
   try {
     clientDbTransaction = await db.connect();
     await clientDbTransaction.query('BEGIN');
-    // Validación robusta de inventario por fechas
     const inventoryCheck = {};
     for (const item of cartItems) {
       if (bundleContents[item.id]) {
@@ -595,14 +569,12 @@ app.post('/api/orders', async (req, res) => {
         inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
       }
     }
-    // Valida inventario considerando reservas activas y día extra de limpieza
     for (const prodId in inventoryCheck) {
       const disponible = await getAvailableStock(prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin);
       if (!disponible.disponible) {
         throw new Error(`No hay suficiente inventario para el producto con ID ${prodId} en las fechas seleccionadas.`);
       }
     }
-    // Valida máximo 3 entregas por día
     const entregaCountRes = await db.query(
       `SELECT COUNT(*) AS total FROM orders WHERE delivery_date = $1`,
       [delivery_date]
@@ -610,7 +582,6 @@ app.post('/api/orders', async (req, res) => {
     if (parseInt(entregaCountRes.rows[0].total) >= 3) {
       throw new Error('Ya hay 3 entregas programadas para la fecha seleccionada. Selecciona otro día.');
     }
-    // Valida máximo 3 recolecciones por día
     const recoleccionCountRes = await db.query(
       `SELECT COUNT(*) AS total FROM orders WHERE pickup_date = $1`,
       [pickup_date]
@@ -621,27 +592,23 @@ app.post('/api/orders', async (req, res) => {
     const timestamp = Date.now();
     const randomSuffix = Math.floor(Math.random() * 10000);
     const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
-    // 1. Insertar en orders (incluyendo delivery_date y pickup_date)
     const orderInsertQuery = `INSERT INTO orders (user_id, total_amount, status, order_date, order_folio, delivery_date, pickup_date)
       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, order_folio`;
     const orderInsertValues = [user_id, total_amount, status, new Date(), generatedOrderFolio, delivery_date, pickup_date];
     const orderResult = await clientDbTransaction.query(orderInsertQuery, orderInsertValues);
     const orderId = orderResult.rows[0].id;
     const orderFolio = orderResult.rows[0].order_folio;
-    // 2. Insertar vínculo en order_addresses
     const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                      VALUES ($1, $2, $3, $4) RETURNING id;`;
     await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-    // 3. Insertar reservas por fechas (con día extra de limpieza)
     for (const prodId in inventoryCheck) {
-      const reservaFin = addDays(rentalDates.fecha_fin, 1); // día extra de limpieza
+      const reservaFin = addDays(rentalDates.fecha_fin, 1);
       await db.query(
         `INSERT INTO reservas (product_id, cantidad, fecha_inicio, fecha_fin, usuario_id, estado) 
          VALUES ($1, $2, $3, $4, $5, 'activa')`,
         [prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, reservaFin, user_id]
       );
     }
-    // 4. Insertar los items (lo que el usuario pidió)
     for (const item of cartItems) {
       const itemInsertQuery = `
         INSERT INTO order_items (order_id, product_name, quantity, price)
@@ -651,8 +618,8 @@ app.post('/api/orders', async (req, res) => {
       await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
     }
     await clientDbTransaction.query('COMMIT');
-    // ENVÍO DE CORREO INTERNO (notificación de pedido)
     try {
+      console.log('Enviando correo interno de pedido...');
       await resend.emails.send({
         from: 'notifications_orders@greenhaul.com.mx',
         to: 'notifications_orders@greenhaul.com.mx',
@@ -676,12 +643,13 @@ app.post('/api/orders', async (req, res) => {
           <p>Fecha de recolección: ${pickup_date}</p>
         `
       });
+      console.log('Correo interno de pedido enviado.');
     } catch (mailErr) {
-      console.warn('No se pudo enviar correo interno de pedido:', mailErr);
+      console.error('No se pudo enviar correo interno de pedido:', mailErr);
     }
-    // ENVÍO DE CORREO DE CONFIRMACIÓN AL CLIENTE DESDE NUEVO CORREO
     if (email && nombre) {
       try {
+        console.log('Enviando correo de confirmación de pedido...');
         await resend.emails.send({
           from: 'confirmacion_pedido@greenhaul.com.mx',
           to: email,
@@ -692,8 +660,9 @@ app.post('/api/orders', async (req, res) => {
           <b>Total:</b> $${parseFloat(total_amount).toFixed(2)}</p>
           <p>Un asesor se contactará contigo para el seguimiento.</p>`
         });
+        console.log('Correo de confirmación de pedido enviado a:', email);
       } catch (mailErr) {
-        console.warn('No se pudo enviar correo de confirmación de pedido al cliente:', mailErr);
+        console.error('No se pudo enviar correo de confirmación de pedido al cliente:', mailErr);
       }
     }
     res.status(201).json({ message: 'Orden creada correctamente y direcciones vinculadas.', order: { id: orderFolio } });
@@ -723,7 +692,6 @@ app.post('/api/mercadopago', async (req, res) => {
   if (!delivery_date || !pickup_date) return res.status(400).json({ message: 'Faltan las fechas de entrega y recolección.' });
 
   try {
-    // 1. Procesa el pago con MercadoPago PRIMERO
     const payment_data = {
       transaction_amount: Number(monto),
       token: token,
@@ -744,7 +712,6 @@ app.post('/api/mercadopago', async (req, res) => {
       try {
         clientDbTransaction = await db.connect();
         await clientDbTransaction.query('BEGIN');
-        // Validación robusta de inventario por fechas
         const inventoryCheck = {};
         for (const item of cartItems) {
           if (bundleContents[item.id]) {
@@ -755,14 +722,12 @@ app.post('/api/mercadopago', async (req, res) => {
             inventoryCheck[item.id] = (inventoryCheck[item.id] || 0) + item.quantity;
           }
         }
-        // Valida inventario considerando día extra de limpieza
         for (const prodId in inventoryCheck) {
           const disponible = await getAvailableStock(prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, rentalDates.fecha_fin);
           if (!disponible.disponible) {
             throw new Error(`No hay suficiente inventario para el producto con ID ${prodId} en las fechas seleccionadas.`);
           }
         }
-        // Valida máximo 3 entregas por día
         const entregaCountRes = await db.query(
           `SELECT COUNT(*) AS total FROM orders WHERE delivery_date = $1`,
           [delivery_date]
@@ -770,7 +735,6 @@ app.post('/api/mercadopago', async (req, res) => {
         if (parseInt(entregaCountRes.rows[0].total) >= 3) {
           throw new Error('Ya hay 3 entregas programadas para la fecha seleccionada. Selecciona otro día.');
         }
-        // Valida máximo 3 recolecciones por día
         const recoleccionCountRes = await db.query(
           `SELECT COUNT(*) AS total FROM orders WHERE pickup_date = $1`,
           [pickup_date]
@@ -781,7 +745,6 @@ app.post('/api/mercadopago', async (req, res) => {
         const timestamp = Date.now();
         const randomSuffix = Math.floor(Math.random() * 10000);
         const generatedOrderFolio = `GRNHL-${timestamp}-${randomSuffix}`;
-        // 1. Insertar en orders (incluyendo delivery_date y pickup_date)
         const orderInsertQuery = `INSERT INTO orders (user_id, total_amount, status, order_date, order_folio, delivery_date, pickup_date)
           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, order_folio`;
         const orderInsertValues = [user_id, monto, 'pagado', new Date(), generatedOrderFolio, delivery_date, pickup_date];
@@ -791,16 +754,14 @@ app.post('/api/mercadopago', async (req, res) => {
         const oaQuery = `INSERT INTO order_addresses (order_id, order_folio, delivery_address_id, pickup_address_id)
                           VALUES ($1, $2, $3, $4) RETURNING id;`;
         await clientDbTransaction.query(oaQuery, [orderId, orderFolio, delivery_address_id, pickup_address_id]);
-        // Insertar reservas por fechas (con día extra de limpieza)
         for (const prodId in inventoryCheck) {
-          const reservaFin = addDays(rentalDates.fecha_fin, 1); // día extra de limpieza
+          const reservaFin = addDays(rentalDates.fecha_fin, 1);
           await db.query(
             `INSERT INTO reservas (product_id, cantidad, fecha_inicio, fecha_fin, usuario_id, estado) 
              VALUES ($1, $2, $3, $4, $5, 'activa')`,
             [prodId, inventoryCheck[prodId], rentalDates.fecha_inicio, reservaFin, user_id]
           );
         }
-        // Insertar los items
         for (const item of cartItems) {
           const itemInsertQuery = `
             INSERT INTO order_items (order_id, product_name, quantity, price)
@@ -810,8 +771,6 @@ app.post('/api/mercadopago', async (req, res) => {
           await clientDbTransaction.query(itemInsertQuery, itemInsertValues);
         }
         await clientDbTransaction.query('COMMIT');
-        // Aquí sigue tu lógica de emails y respuesta...
-        // (puedes dejar igual el resto del bloque)
       } catch (err) {
         if (clientDbTransaction) await clientDbTransaction.query('ROLLBACK');
         console.error("❌ Error al guardar orden después de pago Mercado Pago:", err);
@@ -819,16 +778,62 @@ app.post('/api/mercadopago', async (req, res) => {
       } finally {
         if (clientDbTransaction) clientDbTransaction.release();
       }
-      // Responde al usuario y envía correos (igual que ya tienes)
       res.status(200).json({
         message: 'Pago procesado y orden guardada correctamente.',
         order_id: orderId,
         order_folio: orderFolio,
         mercado_pago: paymentData
       });
-
-      // Envío de correo de confirmación en segundo plano...
-      // (y el resto de tu lógica)
+      // Correos de confirmación y notificación en segundo plano
+      setImmediate(async () => {
+        try {
+          console.log('Enviando correo interno de pedido desde pago...');
+          await resend.emails.send({
+            from: 'notifications_orders@greenhaul.com.mx',
+            to: 'notifications_orders@greenhaul.com.mx',
+            subject: `Nuevo pedido recibido - Folio ${orderFolio}`,
+            html: `
+              <h2>Nuevo pedido realizado</h2>
+              <p>Usuario ID: ${user_id}</p>
+              <p>Folio: ${orderFolio}</p>
+              <p>Total: $${parseFloat(monto).toFixed(2)}</p>
+              <h3>Productos:</h3>
+              <ul>
+                ${cartItems.map(item => `<li>${item.name} (x${item.quantity}) - $${item.price}</li>`).join('')}
+              </ul>
+              <h3>Dirección de entrega:</h3>
+              <p>ID: ${delivery_address_id}</p>
+              <h3>Dirección de recolección:</h3>
+              <p>ID: ${pickup_address_id}</p>
+              <br>
+              <p>Fechas de renta: ${JSON.stringify(rentalDates)}</p>
+              <p>Fecha de entrega: ${delivery_date}</p>
+              <p>Fecha de recolección: ${pickup_date}</p>
+            `
+          });
+          console.log('Correo interno de pedido enviado desde pago.');
+        } catch (mailErr) {
+          console.error('No se pudo enviar correo interno de pedido desde pago:', mailErr);
+        }
+        if (email && nombre) {
+          try {
+            console.log('Enviando correo de confirmación de pedido desde pago...');
+            await resend.emails.send({
+              from: 'confirmacion_pedido@greenhaul.com.mx',
+              to: email,
+              subject: '¡Tu pedido en GreenHaul fue recibido!',
+              html: `<h2>¡Gracias por tu compra, ${nombre}!</h2>
+              <p>Tu pedido ha sido recibido y está en proceso.<br>
+              <b>Folio de orden:</b> ${orderFolio}<br>
+              <b>Total:</b> $${parseFloat(monto).toFixed(2)}</p>
+              <p>Un asesor se contactará contigo para el seguimiento.</p>`
+            });
+            console.log('Correo de confirmación de pedido enviado a:', email);
+          } catch (mailErr) {
+            console.error('No se pudo enviar correo de confirmación de pedido al cliente desde pago:', mailErr);
+          }
+        }
+      });
     } else {
       res.status(400).json({
         message: `El pago no fue aprobado: ${paymentData.status_detail || paymentData.status || 'Sin detalle'}`,
@@ -857,6 +862,7 @@ app.post('/api/contact', async (req, res) => {
       [full_name, email, message]
     );
     try {
+      console.log('Enviando correo de acuse al cliente...');
       await resend.emails.send({
         from: 'soporte@greenhaul.com.mx',
         to: email,
@@ -864,10 +870,12 @@ app.post('/api/contact', async (req, res) => {
         html: `<h2>¡Hola, ${full_name}!</h2>
         <p>Recibimos tu mensaje. Pronto te contactaremos.</p>`
       });
+      console.log('Correo de acuse enviado a:', email);
     } catch (mailErr) {
-      console.warn('No se pudo enviar correo de acuse al cliente:', mailErr);
+      console.error('No se pudo enviar correo de acuse al cliente:', mailErr);
     }
     try {
+      console.log('Enviando correo interno de contacto...');
       await resend.emails.send({
         from: 'soporte@greenhaul.com.mx',
         to: 'soporte@greenhaul.com.mx',
@@ -878,8 +886,9 @@ app.post('/api/contact', async (req, res) => {
           <p>Mensaje:</p>
           <p>${message}</p>`
       });
+      console.log('Correo interno de contacto enviado.');
     } catch (mailErr) {
-      console.warn('No se pudo enviar correo interno de contacto:', mailErr);
+      console.error('No se pudo enviar correo interno de contacto:', mailErr);
     }
     res.status(201).json({ message: '¡Mensaje enviado correctamente! Pronto te contactaremos.' });
   } catch (err) {
