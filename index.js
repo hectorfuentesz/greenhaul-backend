@@ -428,7 +428,6 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
   }
 });
 
-// =============== LISTAR ÓRDENES DE UN USUARIO (usando la tabla de orders) ===============
 app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
@@ -445,8 +444,16 @@ app.get('/api/users/:userId/orders', async (req, res) => {
        ORDER BY order_date DESC`,
       [userId]
     );
-    // RESPONDE SOLO EL ARRAY DIRECTO, NO OBJETO
-    res.status(200).json(ordersResult.rows);
+    // Renombra para el frontend
+    const orders = ordersResult.rows.map(order => ({
+      id: order.order_folio,
+      fecha: order.order_date,
+      total: order.total_amount,
+      estado: order.status,
+      recoleccion: order.pickup_date,
+      entrega: order.delivery_date
+    }));
+    res.status(200).json(orders);
   } catch (err) {
     console.error("❌ Error GET /api/users/:userId/orders:", err);
     res.status(500).json({ message: 'Error al obtener los pedidos del usuario.' });
