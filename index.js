@@ -439,8 +439,8 @@ app.get('/api/users/:userId/orders', async (req, res) => {
        ORDER BY order_date DESC`,
       [userId]
     );
-    res.status(200).json({ orders: ordersResult.rows });
-  } catch (err) {
+    res.status(200).json(ordersResult.rows);
+    } catch (err) {
     console.error("❌ Error GET /api/users/:userId/orders:", err);
     res.status(500).json({ message: 'Error al obtener los pedidos del usuario.' });
   }
