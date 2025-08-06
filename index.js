@@ -428,7 +428,7 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
   }
 });
 
-// =============== LISTAR ÓRDENES DE UN USUARIO (solo el arreglo) ===============
+// =============== LISTAR ÓRDENES DE UN USUARIO (usando la tabla de orders) ===============
 app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
@@ -438,13 +438,14 @@ app.get('/api/users/:userId/orders', async (req, res) => {
          TO_CHAR(order_date, 'YYYY-MM-DD') AS order_date, 
          total_amount, 
          status, 
+         TO_CHAR(delivery_date, 'YYYY-MM-DD') AS delivery_date,
          TO_CHAR(pickup_date, 'YYYY-MM-DD') AS pickup_date
        FROM orders
        WHERE user_id = $1
        ORDER BY order_date DESC`,
       [userId]
     );
-    // RESPONDE SOLO EL ARREGLO:
+    // RESPONDE SOLO EL ARRAY DIRECTO, NO OBJETO
     res.status(200).json(ordersResult.rows);
   } catch (err) {
     console.error("❌ Error GET /api/users/:userId/orders:", err);
