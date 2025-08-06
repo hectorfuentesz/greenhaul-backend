@@ -428,16 +428,16 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
   }
 });
 
-// =============== LISTAR ÓRDENES DE UN USUARIO (con los campos requeridos) ===============
+// =============== LISTAR ÓRDENES DE UN USUARIO (solo campos requeridos) ===============
 app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
     const ordersResult = await db.query(
       `SELECT 
-         order_folio,
-         TO_CHAR(order_date, 'YYYY-MM-DD') AS order_date,
-         total_amount,
-         status,
+         order_folio, 
+         TO_CHAR(order_date, 'YYYY-MM-DD') AS order_date, 
+         total_amount, 
+         status, 
          TO_CHAR(pickup_date, 'YYYY-MM-DD') AS pickup_date
        FROM orders
        WHERE user_id = $1
