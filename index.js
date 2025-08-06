@@ -428,7 +428,7 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
   }
 });
 
-// =============== LISTAR ÓRDENES DE UN USUARIO (solo campos requeridos) ===============
+// =============== LISTAR ÓRDENES DE UN USUARIO (solo el arreglo) ===============
 app.get('/api/users/:userId/orders', async (req, res) => {
   const { userId } = req.params;
   try {
@@ -444,7 +444,8 @@ app.get('/api/users/:userId/orders', async (req, res) => {
        ORDER BY order_date DESC`,
       [userId]
     );
-    res.status(200).json({ orders: ordersResult.rows });
+    // RESPONDE SOLO EL ARREGLO:
+    res.status(200).json(ordersResult.rows);
   } catch (err) {
     console.error("❌ Error GET /api/users/:userId/orders:", err);
     res.status(500).json({ message: 'Error al obtener los pedidos del usuario.' });
