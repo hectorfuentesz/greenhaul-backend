@@ -428,6 +428,24 @@ app.get('/api/users/:userId/dashboard', async (req, res) => {
   }
 });
 
+// =============== LISTAR ÓRDENES DE UN USUARIO ===============
+app.get('/api/users/:userId/orders', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const ordersResult = await db.query(
+      `SELECT id, order_folio, total_amount, status, order_date, delivery_date, pickup_date
+       FROM orders
+       WHERE user_id = $1
+       ORDER BY order_date DESC`,
+      [userId]
+    );
+    res.status(200).json({ orders: ordersResult.rows });
+  } catch (err) {
+    console.error("❌ Error GET /api/users/:userId/orders:", err);
+    res.status(500).json({ message: 'Error al obtener los pedidos del usuario.' });
+  }
+});
+
 // =============== RUTAS PARA GESTIÓN DE DIRECCIONES ===============
 app.get('/api/users/:userId/addresses', async (req, res) => {
   const { userId } = req.params;
